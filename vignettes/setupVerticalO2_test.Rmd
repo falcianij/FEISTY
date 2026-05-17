@@ -23,19 +23,10 @@ This test vignette is a runnable workflow for validating `setupVerticalO2()` wit
 ## Load FEISTY functions and profile data locally
 
 ```{r setup-local}
-# Load FEISTY package if installed; otherwise source local R code.
-if (!requireNamespace("FEISTY", quietly = TRUE)) {
-  source("R/FEISTY_doc.R")
-  source("R/FEISTY_parms.R")
-  source("R/FEISTY_fishing.R")
-  source("R/FEISTY_setup.R")
-  source("R/FEISTY_main.R")
-  source("R/FEISTY_plotting.R")
-} else {
-  library(FEISTY)
-}
+# Load FEISTY functions locally through devtools.
+devtools::load_all(path = here::here())
 
-profile_path <- here::here("data/profiles_emblematic_sites_hist_vs_ssp585_long.csv")
+profile_path <- here::here("data/profiles_sites_hist_vs_ssp585_long.csv")
 stopifnot(file.exists(profile_path))
 
 site <- "CCE"

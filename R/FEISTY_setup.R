@@ -1360,7 +1360,7 @@ calc_light_scalar <- function(L, K_L = 0.1, h_L = 1, L_min = 0.05) {
   L_min + (1 - L_min) * L^h_L / (L^h_L + K_L^h_L)
 }
 
-setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/profiles_emblematic_sites_hist_vs_ssp585_long.csv"), site = NULL, scenario = NULL,
+setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/profiles_sites_hist_vs_ssp585_long.csv"), site = NULL, scenario = NULL,
   szprod = NULL, lzprod = NULL, bprodin = NA, dfbot = NA, dfpho = NA, nStages = 9, photic = NULL, shelfdepth = 250,
   visual = 1.5, etaMature = 0.25, Fmax = 0, etaF = 0.05, bET = TRUE, I_eu = 0.01, ssigma = 10, tau = 10,
   fill_internal_gaps = FALSE, use_legacy_visual = FALSE, K_O = 2, h_O = 1, T_ref_O2 = 10, b_D = 0.75, b_S = 0.67,
