@@ -4,8 +4,10 @@ output: html_document
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
-library(FEISTY)
+library(devtools)
 library(here)
+devtools::load_all(here::here())
+#library(FEISTY)
 ```
 
 ## 1) Load profile forcing
