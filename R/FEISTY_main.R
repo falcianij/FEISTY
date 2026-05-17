@@ -543,8 +543,8 @@ simulateFEISTY = function(p      = setupBasic(),
   Fname <- p$stagenames[-(1:nR)]
   Gname <- p$groupnames[-(1:nR)]
   outnames <- c(
-    paste("f", Fname, sep="."), paste("mortpred", Sname, sep="."),
-    paste("g", Fname, sep="."), paste("Repro", Fname, sep="."),
+    paste("f", Fname, sep="."), paste("glvl", Fname, sep="."), paste("g", Fname, sep="."), paste("mortpred", Sname, sep="."),
+    paste("Repro", Fname, sep="."),
     paste("Fin", Fname, sep="."), paste("Fout", Fname, sep="."),
     paste("totMort", Gname, sep="."), paste("totGrazing", Gname, sep="."),
     paste("totLoss", Gname, sep="."), paste("totRepro", Gname, sep="."),
@@ -641,6 +641,7 @@ simulateFEISTY = function(p      = setupBasic(),
     if (any(dim(p$theta)-c(nGrid, nGrid) != 0))
       stop ("dimension of 'theta' not ok: should be (", nGrid, ",", nGrid, ")")  
     
+    if (is.null(p$glvl)) p$glvl <- rep(1, nGrid)
     # the double precision numbers to be passed to the fortran code
     rpar   <- c(rep(p$K,  length.out=nR),            # resource parameters
                 rep(p$r,  length.out=nR),  
@@ -654,6 +655,7 @@ simulateFEISTY = function(p      = setupBasic(),
                 rep(p$metabolism, length.out=nGrid),
                 rep(p$mort0,      length.out=nGrid),
                 rep(p$mortF,      length.out=nGrid),
+                rep(p$glvl,       length.out=nGrid),
                 rep(p$Vsave,          length.out=nGrid), 
                 rep(p$Cmaxsave,       length.out=nGrid),
                 rep(p$metabolismsave, length.out=nGrid),

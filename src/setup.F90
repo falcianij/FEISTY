@@ -33,6 +33,7 @@ Module setup
    real(dp), allocatable:: V(:)          ! assembled vector of clearance rate
    real(dp), allocatable:: Enc(:)        ! assembled vector of encounter rate
    real(dp), allocatable:: flvl(:)       ! assembled vector of feeding level
+   real(dp), allocatable:: glvl(:)       ! oxygen limitation level, analogous to flvl
    real(dp), allocatable:: Cmax(:)       ! assembled vector of maximum consumption rate
    real(dp), allocatable:: mortpred(:)   ! assembled vector of predation mortality
    real(dp), allocatable:: mc(:)         ! assembled vector of central mass

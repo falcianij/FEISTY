@@ -1,0 +1,165 @@
+---
+title: "Testing `setupVerticalO2()` Locally"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Testing setupVerticalO2 Locally}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 8, fig.height = 5)
+```
+
+## Purpose
+
+This test vignette is a runnable workflow for validating `setupVerticalO2()` with:
+
+1. Local loading of FEISTY code and profile data.
+2. Vertical profile and habitat/overlap diagnostics.
+3. A short simulation run.
+4. Food web and simulation summary plots.
+
+## Load FEISTY functions and profile data locally
+
+```{r setup-local}
+# Load FEISTY package if installed; otherwise source local R code.
+if (!requireNamespace("FEISTY", quietly = TRUE)) {
+  source("R/FEISTY_doc.R")
+  source("R/FEISTY_parms.R")
+  source("R/FEISTY_fishing.R")
+  source("R/FEISTY_setup.R")
+  source("R/FEISTY_main.R")
+  source("R/FEISTY_plotting.R")
+} else {
+  library(FEISTY)
+}
+
+profile_path <- here::here("data/profiles_emblematic_sites_hist_vs_ssp585_long.csv")
+stopifnot(file.exists(profile_path))
+
+site <- "CCE"
+scenario <- "hist"
+```
+
+## Read and inspect a profile
+
+```{r profile-load}
+prof <- read_vertical_o2_profile(
+  profile_path = profile_path,
+  site = site,
+  scenario = scenario,
+  fill_internal_gaps = FALSE
+)
+
+str(prof)
+head(prof)
+summary(prof$dz_m)
+```
+
+## Plot vertical forcing profiles
+
+```{r forcing-profiles, fig.height=8}
+op <- par(mfrow = c(2, 3), mar = c(4, 4, 2, 1))
+plot(prof$temp_C, prof$depth_mid_m, type = "l", lwd = 2,
+     xlab = "Temperature (C)", ylab = "Depth (m)", main = "Temperature")
+plot(prof$pO2_kPa, prof$depth_mid_m, type = "l", lwd = 2,
+     xlab = "pO2 (kPa)", ylab = "Depth (m)", main = "Oxygen")
+plot(prof$zmicro, prof$depth_mid_m, type = "l", lwd = 2,
+     xlab = "zmicro", ylab = "Depth (m)", main = "Microzoo")
+plot(prof$zmeso, prof$depth_mid_m, type = "l", lwd = 2,
+     xlab = "zmeso", ylab = "Depth (m)", main = "Mesozoo")
+plot(prof$I_day_rel, prof$depth_mid_m, type = "l", lwd = 2,
+     xlab = "I_day_rel", ylab = "Depth (m)", main = "Light (day)")
+plot(prof$I_night_rel, prof$depth_mid_m, type = "l", lwd = 2,
+     xlab = "I_night_rel", ylab = "Depth (m)", main = "Light (night)")
+for (i in 1:6) {
+  usr <- par("usr")
+  # Flip y-axis so surface appears at top
+  par(usr = c(usr[1], usr[2], max(prof$depth_mid_m), min(prof$depth_mid_m)))
+  box()
+}
+par(op)
+```
+
+## Build `setupVerticalO2()`
+
+```{r build-setup}
+p <- setupVerticalO2(
+  profile_path = profile_path,
+  site = site,
+  scenario = scenario,
+  nStages = 9,
+  K_O = 2,
+  h_O = 1,
+  delta_pO2_ref = 2,
+  Q10_D = 2,
+  Q10_S = 1.5,
+  K_L = 0.1,
+  L_min = 0.05
+)
+
+p$setup
+dim(p$depthDay)
+dim(p$depthNight)
+range(p$glvl)
+range(p$phiLightDay)
+range(p$phiLightNight)
+```
+
+## Vertical-distribution and oxygen/light diagnostics
+
+```{r diagnostics, fig.height=8}
+op <- par(mfrow = c(2, 2), mar = c(4, 4, 2, 1))
+
+matplot(p$depthDay[, p$ixFish], p$z_mid, type = "l", lty = 1,
+        xlab = "Depth fraction", ylab = "Depth (m)",
+        main = "DepthDay by fish stage")
+
+plot(p$phiLightDay, p$z_mid, type = "l", lwd = 2,
+     xlab = "Light scalar", ylab = "Depth (m)",
+     main = "phiLightDay / phiLightNight")
+lines(p$phiLightNight, p$z_mid, lwd = 2, lty = 2)
+legend("bottomright", legend = c("Day", "Night"), lty = c(1,2), bty = "n")
+
+matplot(p$glvl_day[, p$ixFish], p$z_mid, type = "l", lty = 1,
+        xlab = "Local glvl", ylab = "Depth (m)",
+        main = "glvl_day by fish stage")
+
+plot(p$glvl[p$ixFish], type = "h", lwd = 3,
+     xlab = "Fish stage index", ylab = "Effective glvl",
+     main = "Stage-effective glvl")
+
+for (k in 1:3) {
+  usr <- par("usr")
+  par(usr = c(usr[1], usr[2], max(p$z_mid), min(p$z_mid)))
+  box()
+}
+par(op)
+```
+
+## Food-web structure plots
+
+```{r foodweb-plots, fig.height=6}
+plotNetwork(p)
+plotDiet(p)
+plotRates(p)
+```
+
+## Run and inspect a short simulation
+
+```{r run-sim}
+sim <- simulateFEISTY(p = p, tEnd = 50)
+head(sim)
+```
+
+```{r sim-plots, fig.height=6}
+plotSimulation(sim)
+plotBiomasstime(sim)
+plotYieldtime(sim)
+```
+
+## Notes for global loops
+
+For global workflows, you can preload the CSV once, split by site/scenario, and call
+`setupVerticalO2(profile = one_site_profile, ...)` to avoid repeated file I/O.
