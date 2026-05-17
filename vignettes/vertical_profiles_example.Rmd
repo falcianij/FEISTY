@@ -1,0 +1,102 @@
+---
+title: "FEISTY Vertical Profile Day/Night Analysis Example"
+output: html_document
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(FEISTY)
+library(here)
+```
+
+## 1) Load profile forcing
+
+This example uses the profile file provided for the dynamic vertical workflow:
+
+```{r load-profiles}
+profile_path <- here("data", "profiles_sites_hist_vs_ssp585_long.csv")
+stopifnot(file.exists(profile_path))
+
+raw <- read.csv(profile_path, stringsAsFactors = FALSE)
+site <- unique(raw$site)[1]
+scenario <- unique(raw$scenario)[1]
+
+profiles <- read_feisty_vertical_profiles(
+  path = profile_path,
+  site = site,
+  scenario = scenario
+)
+
+head(profiles)
+```
+
+## 2) Define group-size descriptors and run vertical analysis
+
+`analyze_feisty_vertical_profiles()` produces day/night suitability and occupancy diagnostics across the arbitrary depth grid `z = 1..Z`.
+
+```{r run-analysis}
+groups <- c("small_pelagic", "mesopelagic", "large_pelagic", "midwater_predator", "demersal")
+is_larval <- rep(FALSE, length(groups))
+w_q <- c(1, 10, 100, 50, 20)  # representative masses (g)
+
+ana <- analyze_feisty_vertical_profiles(
+  path = profile_path,
+  site = site,
+  scenario = scenario,
+  groups = groups,
+  is_larval = is_larval,
+  w_q = w_q
+)
+
+str(list(
+  P_day = dim(ana$P_day),
+  P_night = dim(ana$P_night),
+  Suit_day = dim(ana$Suit_day),
+  Suit_night = dim(ana$Suit_night)
+))
+```
+
+## 3) Inspect day/night profile diagnostics
+
+```{r plot-input-light, fig.width=6, fig.height=5}
+plot_feisty_vertical_analysis(ana, variable = "input_light")
+```
+
+```{r plot-input-o2, fig.width=6, fig.height=5}
+plot_feisty_vertical_analysis(ana, variable = "input_o2")
+```
+
+```{r plot-suit-day, fig.width=6, fig.height=5}
+plot_feisty_vertical_analysis(ana, variable = "suitability_day")
+```
+
+```{r plot-suit-night, fig.width=6, fig.height=5}
+plot_feisty_vertical_analysis(ana, variable = "suitability_night")
+```
+
+## 4) Inspect predicted day/night occupancy distributions
+
+```{r plot-p-day, fig.width=6, fig.height=5}
+plot_feisty_vertical_analysis(ana, variable = "P_day")
+```
+
+```{r plot-p-night, fig.width=6, fig.height=5}
+plot_feisty_vertical_analysis(ana, variable = "P_night")
+```
+
+## 5) Print depth-moment diagnostics
+
+```{r moments}
+out <- data.frame(
+  group = groups,
+  z_mean_day = ana$z_mean_day,
+  z_var_day = ana$z_var_day,
+  z_mean_night = ana$z_mean_night,
+  z_var_night = ana$z_var_night
+)
+out
+```
+
+## Notes
+
+- This vignette demonstrates the current vertical analysis wrapper workflow built around profile-derived forcing and diagnostics.
+- It does not yet replace the full FEISTY core simulation loop; instead it provides day/night suitability and occupancy diagnostics needed for the dynamic vertical setup.
