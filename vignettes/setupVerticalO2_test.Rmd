@@ -126,18 +126,12 @@ range(p$phiLightNight)
 ## Vertical-distribution and oxygen/light diagnostics
 
 ```{r diagnostics, fig.height=8}
-op <- par(mfrow = c(2, 2), mar = c(4, 4, 2, 1))
+op <- par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
 
 # Stage colors by fish group
 group_cols <- unlist(mapply(function(ix, nm) rep(p$my_palette[nm], length(ix)),
                             p$ix, p$groupnames[p$ixFish], SIMPLIFY = FALSE))
 fish_stage_labels <- p$stagenames[p$ixFish]
-
-matplot(p$depthDay[, p$ixFish], p$z_mid, type = "l", lty = 1, col = group_cols,
-        xlab = "Depth fraction", ylab = "Depth (m)",
-        main = "DepthDay by fish stage", ylim = rev(range(p$z_mid)))
-legend("bottomright", legend = p$groupnames[p$ixFish], col = p$my_palette[p$groupnames[p$ixFish]],
-       lty = 1, cex = 0.7, bty = "n")
 
 plot(p$phiLightDay, p$z_mid, type = "l", lwd = 2,
      xlab = "Light scalar", ylab = "Depth (m)",
@@ -145,33 +139,34 @@ plot(p$phiLightDay, p$z_mid, type = "l", lwd = 2,
 lines(p$phiLightNight, p$z_mid, lwd = 2, lty = 2)
 legend("bottomright", legend = c("Day", "Night"), lty = c(1,2), bty = "n")
 
-matplot(p$depthNight[, p$ixFish], p$z_mid, type = "l", lty = 1, col = group_cols,
-        xlab = "Depth fraction", ylab = "Depth (m)",
-        main = "DepthNight by fish stage", ylim = rev(range(p$z_mid)))
-
-par(new = FALSE)
-plot(p$glvl[p$ixFish], type = "h", lwd = 3, col = group_cols,
-     xlab = "Fish stage index", ylab = "Effective glvl",
-     main = "Stage-effective glvl")
-points(p$glvl[p$ixFish], pch = 16, col = group_cols)
-axis(1, at = seq_along(p$ixFish), labels = fish_stage_labels, las = 2, cex.axis = 0.55)
+plot(p$mc[p$ixFish], p$glvl[p$ixFish], type = "n",
+     xlab = "Weight (g)", ylab = "glvl", log = "x",
+     main = "glvl by stage and group", ylim = c(0, 1.05))
+for (gix in seq_along(p$ix)) {
+  idx <- p$ix[[gix]]
+  lines(p$mc[idx], p$glvl[idx], col = p$my_palette[p$groupnames[gix]], lwd = 2)
+  points(p$mc[idx], p$glvl[idx], col = p$my_palette[p$groupnames[gix]], pch = 16)
+}
 abline(h = c(0.25, 0.5, 0.75, 1.0), lty = 3, col = "grey80")
-legend("bottomleft", legend = p$groupnames[p$ixFish], col = p$my_palette[p$groupnames[p$ixFish]],
+legend("bottomright", legend = p$groupnames[p$ixFish], col = p$my_palette[p$groupnames[p$ixFish]],
        lty = 1, pch = 16, cex = 0.7, bty = "n")
 
 par(op)
 ```
 
-## Oxygen-local diagnostics by depth (day vs night)
+## Vertical-distribution diagnostics by group (day vs night)
 
-```{r glvl-local-depth, fig.height=6}
-op <- par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
-matplot(p$glvl_day[, p$ixFish], p$z_mid, type = "l", lty = 1, col = group_cols,
-        xlab = "Local glvl", ylab = "Depth (m)",
-        main = "glvl_day by fish stage", ylim = rev(range(p$z_mid)))
-matplot(p$glvl_night[, p$ixFish], p$z_mid, type = "l", lty = 1, col = group_cols,
-        xlab = "Local glvl", ylab = "Depth (m)",
-        main = "glvl_night by fish stage", ylim = rev(range(p$z_mid)))
+```{r depth-by-group, fig.height=10}
+op <- par(mfrow = c(length(p$ix), 2), mar = c(3, 4, 2, 1))
+for (gix in seq_along(p$ix)) {
+  idx <- p$ix[[gix]]
+  matplot(p$depthDay[, idx], p$z_mid, type = "l", lty = 1,
+          col = p$my_palette[p$groupnames[gix]], xlab = "Depth fraction", ylab = "Depth (m)",
+          main = paste(p$groupnames[gix], "- Day"), ylim = rev(range(p$z_mid)))
+  matplot(p$depthNight[, idx], p$z_mid, type = "l", lty = 1,
+          col = p$my_palette[p$groupnames[gix]], xlab = "Depth fraction", ylab = "Depth (m)",
+          main = paste(p$groupnames[gix], "- Night"), ylim = rev(range(p$z_mid)))
+}
 par(op)
 ```
 
