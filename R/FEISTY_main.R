@@ -41,6 +41,7 @@
 #' \itemize{
 #' \item deriv: a vector of derivatives [g/m2/year] of all resources and all functional type size classes.
 #' \item f: a vector containing feeding levels [-] of all resources (0) and all size classes of functional types.
+#' \item glvl: a vector containing oxygen limitation levels [-] of all size classes of functional types. Resources not included.
 #' \item mortpred: a vector containing predation mortality rate [1/year] of all resources and all size classes of functional types.
 #' \item g: Net growth rate (the fraction of available energy invested in growth) [1/year]. It includes all size classes of functional types. Resources not included.
 #' \item Repro: Energy used for reproduction of all size classes of functional types [g/m2/year]. Resources not included.
@@ -48,7 +49,7 @@
 #' \item Fout: Biomass flux out of each size class [g/m2/year]. Resources not included.
 #' \item totMort: a vector containing total mortality [g/m2/year] of each functional type, 
 #' which includes predation mortality, background mortality, and fishing mortality.
-#' \item totGrazing: a vector containing total grazing (food intake before assimilation) [g/m2/year] of each functional type. Cmax * f * u (maximum consumption rate * feeding level * biomass).
+#' \item totGrazing: a vector containing total grazing (food intake before assimilation) [g/m2/year] of each functional type. glvl * Cmax * f * u (oxygen limitation * maximum consumption rate * feeding level * biomass).
 #' \item totLoss: a vector containing total biomass loss [g/m2/year] of each functional type, including unassimilated food, basal metabolism and reproduction cost (1-epsRepro). 
 #' The reproduction cost here also include the energy loss (1-epsRepro) from the flux out of the last size class (invested in reproduction) of each functional type.
 #' These losses are supposed to be released to environments.
@@ -140,6 +141,8 @@ derivativesFEISTYR = function(t,              # current time
   
   # split state variable vector into resource and fish
   u[u<0]=0
+  if (is.null(p$glvl)) p$glvl <- rep(1, length(u))
+  glvl <- rep(p$glvl, length.out = length(u))
   R     = u[p$ixR]       # resource, prey
   iFish = p$ixFish
   B     = u[iFish]       # fish
@@ -162,7 +165,7 @@ derivativesFEISTYR = function(t,              # current time
   # = t(p$theta) %*% (f*p$Cmax/p$epsAssim*u/p$mc)
   # ----------------------------------------------
   #
-  mm = p$Cmax*p$V/(Enc+p$Cmax)*u # temporarily store
+  mm = glvl*p$Cmax*p$V/(Enc+p$Cmax)*u # temporarily store; glvl limits predator ingestion capacity
   mm[ is.na(mm) ] = 0
   mortpred = t(p$theta) %*% mm  
   
@@ -195,7 +198,7 @@ derivativesFEISTYR = function(t,              # current time
   f[is.na(f)] = 0
   
   # net growth rate, /yr
-  Eavail  = p$epsAssim * p$Cmax * f - p$metabolism
+  Eavail  = p$epsAssim * glvl * p$Cmax * f - p$metabolism
 
   # ----------------------------------------------
   # Total mortality (includes basal and fishing mortality)
@@ -266,6 +269,7 @@ derivativesFEISTYR = function(t,              # current time
     out = list()
     out$deriv = c(dRdt, dBdt)
     out$f     = f[-p$ixR,] # Feeding level only all fish stages, no resources
+    out$glvl  = glvl[-p$ixR] # Oxygen limitation level only all fish stages, no resources
     out$mortpred = mortpred[,]
     out$g     = g # net growth rate fish stages
     out$Repro = Repro
@@ -273,7 +277,7 @@ derivativesFEISTYR = function(t,              # current time
     out$Fout  = Fout
     
     # for the budget:
-    grazing = p$Cmax * f         # grazing rate, /yr
+    grazing = glvl * p$Cmax * f  # oxygen-scaled grazing rate, /yr
     loss    = (1.-p$epsAssim) * grazing + p$metabolism # Energy loss to environments. Updated below.
     Reprofrac = (1-kappa)*vplus
     
@@ -526,6 +530,9 @@ simulateFEISTY = function(p      = setupBasic(),
   # if bTS is not defined, the simulation is non-ts simulation
   if (is.null(p$bTS)) p$bTS = FALSE  
   if (is.null(p$tSpin)) p$tSpin = NA  
+  if (is.null(p$glvl)) p$glvl <- rep(1, nGrid)
+  if (length(p$glvl) != nGrid)
+    stop("length of 'glvl' not ok - should be ", nGrid)
     
   if (length(yini) != nGrid) 
     stop ("length of 'yini' not ok - should be ", nGrid)  
@@ -843,6 +850,9 @@ simulateFEISTY = function(p      = setupBasic(),
   # "^xx" extracting data starts with "xx"
   col_f=grep("^f\\.", colnames(u), value = TRUE)
   sim$f=u[,col_f]  
+  # oxygen limitation level
+  col_glvl=grep("^glvl\\.", colnames(u), value = TRUE)
+  sim$glvl=u[,col_glvl]
   # predation mortality rate
   col_mortpred=grep("^mortpred", colnames(u), value = TRUE)
   sim$mortpred=u[,col_mortpred]
