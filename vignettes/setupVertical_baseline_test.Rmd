@@ -34,9 +34,7 @@ cfg <- data.frame(
   szprod = c(140, 90, 55),
   lzprod = c(120, 80, 45),
   dfpho = c(500, 320, 180),
-  Tp = c(18, 12, 7),
-  Tm = c(14, 8, 4),
-  Tb = c(10, 5, 2)
+  region = c(1, 2, 3)  # 1 Tropical, 2 Temperate, 3 Boreal
 )
 cfg
 ```
@@ -51,10 +49,7 @@ mods <- lapply(seq_len(nrow(cfg)), function(i) {
     dfpho = cfg$dfpho[i],
     depth = cfg$depth[i],
     photic = cfg$photic[i],
-    Tp = cfg$Tp[i],
-    Tm = cfg$Tm[i],
-    Tb = cfg$Tb[i],
-    nStages = 9
+    region = cfg$region[i]
   )
 })
 names(mods) <- cfg$site
