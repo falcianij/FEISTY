@@ -144,17 +144,20 @@ plot(p$mc[p$ixFish], p$glvl[p$ixFish], type = "n",
      xlab = "Weight (g)", ylab = "glvl", log = "x",
      main = "glvl by stage and group", ylim = c(0, 1.05))
 # Draw lines first, then points ordered so overlaid low values are still visible.
+group_jitter <- seq(0.96, 1.04, length.out = length(p$ix))
 for (gix in seq_along(p$ix)) {
   idx <- p$ix[[gix]]
-  lines(p$mc[idx], p$glvl[idx], col = p$my_palette[fish_group_names[gix]], lwd = 2)
+  xj <- p$mc[idx] * group_jitter[gix]
+  lines(xj, p$glvl[idx], col = p$my_palette[fish_group_names[gix]], lwd = 2)
 }
 # Draw points by increasing glvl so higher values are drawn last (on top).
 pt_idx <- p$ixFish[order(p$glvl[p$ixFish], p$mc[p$ixFish])]
 pt_groups <- rep(fish_group_names, lengths(p$ix))
 pt_groups <- pt_groups[match(pt_idx, p$ixFish)]
-points(p$mc[pt_idx], p$glvl[pt_idx], col = p$my_palette[pt_groups], pch = 16, cex = 1.1)
+xj_points <- p$mc[pt_idx] * group_jitter[match(pt_groups, fish_group_names)]
+points(xj_points, p$glvl[pt_idx], col = p$my_palette[pt_groups], pch = 16, cex = 1.1)
 # Add slight open-circle overlay to improve visibility at exact overlaps.
-points(p$mc[pt_idx], p$glvl[pt_idx], col = p$my_palette[pt_groups], pch = 1, cex = 1.1)
+points(xj_points, p$glvl[pt_idx], col = p$my_palette[pt_groups], pch = 1, cex = 1.1)
 abline(h = c(0.25, 0.5, 0.75, 1.0), lty = 3, col = "grey80")
 legend("bottomright", legend = fish_group_names, col = p$my_palette[fish_group_names],
        lty = 1, pch = 16, cex = 0.7, bty = "n")
