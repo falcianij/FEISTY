@@ -1,0 +1,118 @@
+---
+title: "Baseline community contrasts with `setupVertical()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Baseline setupVertical community contrasts}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 8, fig.height = 5)
+```
+
+## Purpose
+
+This vignette provides a baseline reference for how FEISTY communities diverge under the classic `setupVertical()` forcing assumptions.
+Use this as a "sanity anchor" when evaluating whether `setupVerticalO2()` is producing enough between-site differentiation.
+
+## Load package locally
+
+```{r setup}
+devtools::load_all(path = here::here())
+```
+
+## Create contrasting baseline environments
+
+These are not profile-driven; they are controlled contrasts in depth, photic depth, production, and temperature.
+
+```{r configs}
+cfg <- data.frame(
+  site = c("ShelfWarmHighProd", "SlopeMidProd", "DeepCoolLowProd"),
+  depth = c(150, 1200, 3500),
+  photic = c(60, 120, 180),
+  szprod = c(140, 90, 55),
+  lzprod = c(120, 80, 45),
+  dfpho = c(500, 320, 180),
+  Tp = c(18, 12, 7),
+  Tm = c(14, 8, 4),
+  Tb = c(10, 5, 2)
+)
+cfg
+```
+
+## Build setups and run simulations
+
+```{r run}
+mods <- lapply(seq_len(nrow(cfg)), function(i) {
+  setupVertical(
+    szprod = cfg$szprod[i],
+    lzprod = cfg$lzprod[i],
+    dfpho = cfg$dfpho[i],
+    depth = cfg$depth[i],
+    photic = cfg$photic[i],
+    Tp = cfg$Tp[i],
+    Tm = cfg$Tm[i],
+    Tb = cfg$Tb[i],
+    nStages = 9
+  )
+})
+names(mods) <- cfg$site
+
+sims <- lapply(mods, function(p) simulateFEISTY(p = p, tEnd = 120))
+```
+
+## Compare biomass time series
+
+```{r biomass}
+plots <- lapply(sims, plotBiomasstime)
+plots[[1]]
+plots[[2]]
+plots[[3]]
+```
+
+## Compare end-state group biomass
+
+```{r endstate}
+extract_end <- function(sim) {
+  ts <- getTimeseries(sim)
+  te <- max(ts$t)
+  sub <- ts[ts$t == te, c("group", "bio")]
+  aggregate(bio ~ group, data = sub, FUN = sum)
+}
+
+end_list <- Map(function(sim, nm) {
+  x <- extract_end(sim)
+  x$site <- nm
+  x
+}, sims, names(sims))
+
+end_df <- do.call(rbind, end_list)
+end_df
+```
+
+```{r endstate-plot, fig.height=6}
+library(ggplot2)
+
+ggplot(end_df, aes(x = group, y = bio, fill = site)) +
+  geom_col(position = "dodge") +
+  scale_y_log10() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylab("End biomass (g m-2, log scale)") +
+  xlab("Group")
+```
+
+## Compare food-web structures
+
+```{r networks, fig.height=6}
+plotNetwork(sims[[1]])
+plotNetwork(sims[[2]])
+plotNetwork(sims[[3]])
+```
+
+## Interpretation
+
+If these controlled `setupVertical()` environments produce visibly different end communities,
+then limited differentiation under `setupVerticalO2()` likely points to conservative forcing translation
+(e.g., overlap geometry, resource diel redistribution, or energy-routing constraints) rather than plotting artifacts.
