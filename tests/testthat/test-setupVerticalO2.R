@@ -21,6 +21,8 @@ test_that('setupVerticalO2 depth arrays, light and oxygen are bounded', {
   expect_equal(dim(p$depthDay), dim(p$depthNight))
   expect_true(all(abs(colSums(p$depthDay)-1) < 1e-8))
   expect_true(all(abs(colSums(p$depthNight)-1) < 1e-8))
+  expect_true(sum(abs(p$depthDay[,1] - p$depthNight[,1])) > 0)
+  expect_true(sum(abs(p$depthDay[,2] - p$depthNight[,2])) > 0)
   expect_true(all(p$phiLightDay >= 0.5 & p$phiLightDay <= 1.5))
   expect_true(all(p$phiLightNight >= 0.5 & p$phiLightNight <= 1.5))
   expect_equal(p$phiLightNight[1], 1)

@@ -1399,10 +1399,17 @@ setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/prof
   param <- paramAddPhysiology(param); param <- setFishing(param, Fmax=Fmax, etaF=etaF)
   param$sizeprefer <- paramSizepref(p=param, beta=400, sigma=1.3, type=1)
   sigmap <- pmax(ssigma + tau * log10(param$mc / param$mc[1]), min(dz)/2)
+  # Option A (setupVertical-style) diel redistribution for resources:
+  # night at surface; day is half surface + half at dvm.
+  zres_n <- VertDistProfile(z_mid, dz, sigmap[1:2], surface_depth)
+  zres_d_raw <- VertDistProfile(z_mid, dz, sigmap[1:2], dvm_depth)
+  zres_d <- 0.5 * zres_n + 0.5 * zres_d_raw
+  zres_n <- zres_n %*% diag(1 / colSums(zres_n))
+  zres_d <- zres_d %*% diag(1 / colSums(zres_d))
   get_stage_flags <- function(ix){ml <- param$mLower[ix]; med <- ml>=0.5; lg <- ml>=250; if(!any(med)) med[which.min(abs(ml-0.5))] <- TRUE; if(!any(lg)) lg[which.min(abs(ml-250))] <- TRUE; list(med=med, lg=lg)}
   param$depthDay <- matrix(0, Z, param$nStages); param$depthNight <- matrix(0, Z, param$nStages)
-  param$depthDay[,1] <- P_smallZoo; param$depthDay[,2] <- P_largeZoo; param$depthDay[,3] <- P_benthos; param$depthDay[,4] <- P_spare
-  param$depthNight[,1:4] <- param$depthDay[,1:4]
+  param$depthDay[,1] <- zres_d[,1]; param$depthDay[,2] <- zres_d[,2]; param$depthDay[,3] <- P_benthos; param$depthDay[,4] <- P_spare
+  param$depthNight[,1] <- zres_n[,1]; param$depthNight[,2] <- zres_n[,2]; param$depthNight[,3] <- P_benthos; param$depthNight[,4] <- P_spare
   ix <- param$ix[[1]]; param$depthDay[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],surface_depth); param$depthNight[,ix] <- param$depthDay[,ix]
   ix <- param$ix[[2]]; param$depthNight[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],surface_depth); param$depthDay[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],dvm_depth)
   ix <- param$ix[[3]]; flags <- get_stage_flags(ix); pn <- VertDistProfile(z_mid,dz,sigmap[ix],surface_depth); xd <- rep(surface_depth,length(ix)); xd[flags$lg] <- dvm_depth; pd <- VertDistProfile(z_mid,dz,sigmap[ix],xd); param$depthNight[,ix] <- pn; param$depthDay[,ix] <- 0.5*pd+0.5*pn
