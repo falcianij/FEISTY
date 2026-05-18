@@ -543,7 +543,7 @@ simulateFEISTY = function(p      = setupBasic(),
   Fname <- p$stagenames[-(1:nR)]
   Gname <- p$groupnames[-(1:nR)]
   outnames <- c(
-    paste("f", Fname, sep="."), paste("glvl", Fname, sep="."), paste("g", Fname, sep="."), paste("mortpred", Sname, sep="."),
+    paste("f", Fname, sep="."), paste("glvl", Fname, sep="."), paste("mortpred", Sname, sep="."), paste("g", Fname, sep="."),
     paste("Repro", Fname, sep="."),
     paste("Fin", Fname, sep="."), paste("Fout", Fname, sep="."),
     paste("totMort", Gname, sep="."), paste("totGrazing", Gname, sep="."),
