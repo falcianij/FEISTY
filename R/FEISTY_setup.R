@@ -1416,6 +1416,13 @@ setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/prof
   }
   surface_ix <- which.min(z_mid)
   phi_night[surface_ix] <- 1
+  # Smooth nighttime boundary boost: high near surface and bottom, easing toward lower values mid-water.
+  if (length(z_mid) > 1 && max(z_mid) > min(z_mid)) {
+    z01 <- (z_mid - min(z_mid)) / (max(z_mid) - min(z_mid))
+    edge_dist <- pmin(z01, 1 - z01) * 2
+    night_boundary_boost <- 1 - (1 - L_min) * edge_dist
+    phi_night <- pmax(phi_night, night_boundary_boost)
+  }
   dayout <- nightout <- matrix(0, param$nStages, param$nStages)
   for(i in seq_len(param$nStages)) for(j in seq_len(param$nStages)){dayout[j,i] <- sum(pmin(param$depthDay[,i],param$depthDay[,j])*phi_day); nightout[j,i] <- sum(pmin(param$depthNight[,i],param$depthNight[,j])*phi_night)}
   if (use_legacy_visual) {
