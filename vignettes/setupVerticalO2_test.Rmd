@@ -88,6 +88,7 @@ p <- setupVerticalO2(
   Q10_S = 1.5,
   K_L = 0.1,
   L_min = 0.5,
+  L_max = 1.5,
   light_bottom_to_one = TRUE
 )
 

@@ -1356,15 +1356,15 @@ VertDistProfile <- function(z_mid, dz, sigma, xloc) {
   P
 }
 
-calc_light_scalar <- function(L, K_L = 0.1, h_L = 1, L_min = 0.5) {
-  L_min + (1 - L_min) * L^h_L / (L^h_L + K_L^h_L)
+calc_light_scalar <- function(L, K_L = 0.1, h_L = 1, L_min = 0.5, L_max = 1.5) {
+  L_min + (L_max - L_min) * L^h_L / (L^h_L + K_L^h_L)
 }
 
 setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/profiles_sites_hist_vs_ssp585_long.csv"), site = NULL, scenario = NULL,
   szprod = NULL, lzprod = NULL, bprodin = NA, dfbot = NA, dfpho = NA, nStages = 9, photic = NULL, shelfdepth = 250,
   visual = 1.5, etaMature = 0.25, Fmax = 0, etaF = 0.05, bET = TRUE, I_eu = 0.01, ssigma = 10, tau = 10,
   fill_internal_gaps = FALSE, use_legacy_visual = FALSE, K_O = 2, h_O = 1, T_ref_O2 = 10, b_D = 0.75, b_S = 0.67,
-  Q10_D = 2, Q10_S = 1.5, delta_pO2_ref = 2, w_ref_O2 = 1, K_L = 0.1, h_L = 1, L_min = 0.5,
+  Q10_D = 2, Q10_S = 1.5, delta_pO2_ref = 2, w_ref_O2 = 1, K_L = 0.1, h_L = 1, L_min = 0.5, L_max = 1.5,
   light_bottom_to_one = TRUE,
   resource_input_units = "molN_m3", input_to_gN = 14.0, N_to_C = 5.625, C_to_wet = 10, ...) {
   if (is.null(profile)) profile <- read_vertical_o2_profile(profile_path, site, scenario, fill_internal_gaps)
@@ -1408,7 +1408,7 @@ setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/prof
   ix <- param$ix[[3]]; flags <- get_stage_flags(ix); pn <- VertDistProfile(z_mid,dz,sigmap[ix],surface_depth); xd <- rep(surface_depth,length(ix)); xd[flags$lg] <- dvm_depth; pd <- VertDistProfile(z_mid,dz,sigmap[ix],xd); param$depthNight[,ix] <- pn; param$depthDay[,ix] <- 0.5*pd+0.5*pn
   ix <- param$ix[[4]]; flags <- get_stage_flags(ix); xn <- rep(surface_depth,length(ix)); xn[flags$lg] <- dvm_depth; param$depthNight[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],xn); param$depthDay[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],dvm_depth)
   ix <- param$ix[[5]]; flags <- get_stage_flags(ix); xn <- rep(surface_depth,length(ix)); xn[flags$med] <- bottom_target; xd <- xn; xd[flags$lg] <- demmig_depth; dn <- VertDistProfile(z_mid,dz,sigmap[ix],xn); dd <- VertDistProfile(z_mid,dz,sigmap[ix],xd); if(bottom <= photic){dd <- 0.5*(dd+dn); dn <- dd}; param$depthNight[,ix] <- dn; param$depthDay[,ix] <- dd
-  phi_day <- calc_light_scalar(profile$I_day_rel, K_L, h_L, L_min); phi_night <- calc_light_scalar(profile$I_night_rel, K_L, h_L, L_min)
+  phi_day <- calc_light_scalar(profile$I_day_rel, K_L, h_L, L_min, L_max); phi_night <- calc_light_scalar(profile$I_night_rel, K_L, h_L, L_min, L_max)
   if (isTRUE(light_bottom_to_one)) {
     bottom_ix <- which.max(z_bot)
     phi_day[bottom_ix] <- 1
