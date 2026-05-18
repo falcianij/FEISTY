@@ -1445,8 +1445,9 @@ setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/prof
       param$theta[idx_be, idx_smd] <- param$theta[idx_be, idx_smd] * 0.25
     }
   }
-  idx_dem_med_lg <- safe_seq(ix_dem[1] + (ixmedium - 1), ix_dem[length(ix_dem)])
-  if (length(idx_dem_med_lg) > 0) param$theta[idx_dem_med_lg, 1:2] <- 0
+  # Keep demersals pelagic-feeding-capable while in pelagic overlap:
+  # do NOT hard-switch medium/large demersals off zooplankton resources.
+  # Their effective prey use is then controlled by size preference and overlap (theta base).
   pred1 <- safe_seq(param$ix[[3]][1] + (ixlarge - 1), param$ix[[3]][length(param$ix[[3]])])
   pred2 <- safe_seq(param$ix[[4]][1] + (ixlarge - 1), param$ix[[4]][length(param$ix[[4]])])
   pred3 <- safe_seq(ix_dem[1] + (ixlarge - 1), ix_dem[length(ix_dem)])
