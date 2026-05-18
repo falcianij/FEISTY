@@ -60,3 +60,11 @@ test_that('USEdll FALSE returns glvl diagnostics without shifting R outputs', {
   expect_equal(ncol(sim$mortpred), p$nStages)
   expect_equal(ncol(sim$g), length(p$ixFish))
 })
+
+test_that('setupVerticalO2 can disable oxygen limitation without changing profile pO2', {
+  p <- setupVerticalO2(site='CCE', scenario='hist', nStages=9, use_oxygen=FALSE)
+
+  expect_equal(p$glvl, rep(1, p$nStages))
+  expect_true(all(p$glvl_day == 1))
+  expect_true(all(p$glvl_night == 1))
+})

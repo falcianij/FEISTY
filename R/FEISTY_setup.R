@@ -1364,8 +1364,8 @@ setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/prof
   szprod = NULL, lzprod = NULL, bprodin = NA, dfbot = NA, dfpho = NA, nStages = 9, photic = NULL, shelfdepth = 250,
   visual = 1.5, etaMature = 0.25, Fmax = 0, etaF = 0.05, bET = TRUE, I_eu = 0.01, ssigma = 10, tau = 10,
   fill_internal_gaps = FALSE, use_legacy_visual = FALSE, K_O = 2, h_O = 1, T_ref_O2 = 10, b_D = 0.75, b_S = 0.67,
-  Q10_D = 2, Q10_S = 1.5, delta_pO2_ref = 2, w_ref_O2 = 1, K_L = 0.1, h_L = 1, L_min = 0.5, L_max = 1.5,
-  light_bottom_to_one = TRUE,
+  Q10_D = 2, Q10_S = 1.5, delta_pO2_ref = 2, w_ref_O2 = 1, use_oxygen = TRUE,
+  K_L = 0.1, h_L = 1, L_min = 0.5, L_max = 1.5, light_bottom_to_one = TRUE,
   resource_input_units = "molN_m3", input_to_gN = 14.0, N_to_C = 5.625, C_to_wet = 10, ...) {
   if (is.null(profile)) profile <- read_vertical_o2_profile(profile_path, site, scenario, fill_internal_gaps)
   z_mid <- profile$depth_mid_m; z_top <- profile$depth_top_m; z_bot <- profile$depth_bot_m; dz <- profile$dz_m; Z <- nrow(profile)
@@ -1464,6 +1464,10 @@ setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/prof
   glvl_local <- pO2int^h_O/(pO2int^h_O + K_O^h_O); glvl_local[!is.finite(glvl_local)] <- 0
   glvl_eff <- rep(1, param$nStages)
   for (i in param$ixFish) glvl_eff[i] <- 0.5*sum(param$depthDay[,i]*glvl_local[,i]) + 0.5*sum(param$depthNight[,i]*glvl_local[,i])
+  if (!isTRUE(use_oxygen)) {
+    glvl_local[,] <- 1
+    glvl_eff[] <- 1
+  }
   tempC <- 1.88^((tc-10)/10); tempM <- 1.88^((tc-10)/10)
   thetaC <- colSums(param$depthDay*matrix(tempC,Z,param$nStages)) * 0.5 + colSums(param$depthNight*matrix(tempC,Z,param$nStages))*0.5
   thetaM <- colSums(param$depthDay*matrix(tempM,Z,param$nStages)) * 0.5 + colSums(param$depthNight*matrix(tempM,Z,param$nStages))*0.5
