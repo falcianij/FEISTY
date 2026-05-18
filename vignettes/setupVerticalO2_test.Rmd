@@ -129,8 +129,9 @@ range(p$phiLightNight)
 op <- par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
 
 # Stage colors by fish group
+fish_group_names <- p$groupnames[p$nResources + seq_along(p$ix)]
 group_cols <- unlist(mapply(function(ix, nm) rep(p$my_palette[nm], length(ix)),
-                            p$ix, p$groupnames[p$ixFish], SIMPLIFY = FALSE))
+                            p$ix, fish_group_names, SIMPLIFY = FALSE))
 fish_stage_labels <- p$stagenames[p$ixFish]
 
 plot(p$phiLightDay, p$z_mid, type = "l", lwd = 2,
@@ -144,11 +145,11 @@ plot(p$mc[p$ixFish], p$glvl[p$ixFish], type = "n",
      main = "glvl by stage and group", ylim = c(0, 1.05))
 for (gix in seq_along(p$ix)) {
   idx <- p$ix[[gix]]
-  lines(p$mc[idx], p$glvl[idx], col = p$my_palette[p$groupnames[gix]], lwd = 2)
-  points(p$mc[idx], p$glvl[idx], col = p$my_palette[p$groupnames[gix]], pch = 16)
+  lines(p$mc[idx], p$glvl[idx], col = p$my_palette[fish_group_names[gix]], lwd = 2)
+  points(p$mc[idx], p$glvl[idx], col = p$my_palette[fish_group_names[gix]], pch = 16)
 }
 abline(h = c(0.25, 0.5, 0.75, 1.0), lty = 3, col = "grey80")
-legend("bottomright", legend = p$groupnames[p$ixFish], col = p$my_palette[p$groupnames[p$ixFish]],
+legend("bottomright", legend = fish_group_names, col = p$my_palette[fish_group_names],
        lty = 1, pch = 16, cex = 0.7, bty = "n")
 
 par(op)
@@ -156,16 +157,27 @@ par(op)
 
 ## Vertical-distribution diagnostics by group (day vs night)
 
-```{r depth-by-group, fig.height=10}
-op <- par(mfrow = c(length(p$ix), 2), mar = c(3, 4, 2, 1))
+```{r depth-by-group, fig.height=14}
+op <- par(mfrow = c(p$nResources + length(p$ix), 2), mar = c(3, 4, 2, 1))
+# First show resources explicitly so benthos placement/day-night behavior is clear
+for (r in seq_len(p$nResources)) {
+  nm <- p$groupnames[r]
+  plot(p$depthDay[, r], p$z_mid, type = "l", lwd = 2, col = p$my_palette[nm],
+       xlab = "Depth fraction", ylab = "Depth (m)",
+       main = paste(nm, "- Day"), ylim = rev(range(p$z_mid)))
+  plot(p$depthNight[, r], p$z_mid, type = "l", lwd = 2, col = p$my_palette[nm],
+       xlab = "Depth fraction", ylab = "Depth (m)",
+       main = paste(nm, "- Night"), ylim = rev(range(p$z_mid)))
+}
+# Then fish groups
 for (gix in seq_along(p$ix)) {
   idx <- p$ix[[gix]]
   matplot(p$depthDay[, idx], p$z_mid, type = "l", lty = 1,
-          col = p$my_palette[p$groupnames[gix]], xlab = "Depth fraction", ylab = "Depth (m)",
-          main = paste(p$groupnames[gix], "- Day"), ylim = rev(range(p$z_mid)))
+          col = p$my_palette[fish_group_names[gix]], xlab = "Depth fraction", ylab = "Depth (m)",
+          main = paste(fish_group_names[gix], "- Day"), ylim = rev(range(p$z_mid)))
   matplot(p$depthNight[, idx], p$z_mid, type = "l", lty = 1,
-          col = p$my_palette[p$groupnames[gix]], xlab = "Depth fraction", ylab = "Depth (m)",
-          main = paste(p$groupnames[gix], "- Night"), ylim = rev(range(p$z_mid)))
+          col = p$my_palette[fish_group_names[gix]], xlab = "Depth fraction", ylab = "Depth (m)",
+          main = paste(fish_group_names[gix], "- Night"), ylim = rev(range(p$z_mid)))
 }
 par(op)
 ```
