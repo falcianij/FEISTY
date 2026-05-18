@@ -48,6 +48,14 @@ head(prof)
 summary(prof$dz_m)
 ```
 
+```{r optional-constant-o2, eval=FALSE}
+# Optional sensitivity toggle (comment-out-able):
+# Replace the selected profile oxygen with a constant 30 kPa at all depths.
+# This is useful to isolate oxygen effects on g (growth) vs other mechanisms.
+prof_30kpa <- prof
+prof_30kpa$pO2_kPa <- 30
+```
+
 ## Plot vertical forcing profiles
 
 ```{r forcing-profiles, fig.height=8}
@@ -91,6 +99,21 @@ p <- setupVerticalO2(
   L_max = 1.5,
   light_bottom_to_one = TRUE
 )
+
+# Optional constant-O2 run (uncomment to use):
+# p <- setupVerticalO2(
+#   profile = prof_30kpa,
+#   nStages = 9,
+#   K_O = 2,
+#   h_O = 1,
+#   delta_pO2_ref = 2,
+#   Q10_D = 2,
+#   Q10_S = 1.5,
+#   K_L = 0.1,
+#   L_min = 0.5,
+#   L_max = 1.5,
+#   light_bottom_to_one = TRUE
+# )
 
 p$setup
 dim(p$depthDay)
