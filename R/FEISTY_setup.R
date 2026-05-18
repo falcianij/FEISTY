@@ -1415,21 +1415,12 @@ setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/prof
   ix <- param$ix[[3]]; flags <- get_stage_flags(ix); pn <- VertDistProfile(z_mid,dz,sigmap[ix],surface_depth); xd <- rep(surface_depth,length(ix)); xd[flags$lg] <- dvm_depth; pd <- VertDistProfile(z_mid,dz,sigmap[ix],xd); param$depthNight[,ix] <- pn; param$depthDay[,ix] <- 0.5*pd+0.5*pn
   ix <- param$ix[[4]]; flags <- get_stage_flags(ix); xn <- rep(surface_depth,length(ix)); xn[flags$lg] <- dvm_depth; param$depthNight[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],xn); param$depthDay[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],dvm_depth)
   ix <- param$ix[[5]]; flags <- get_stage_flags(ix); xn <- rep(surface_depth,length(ix)); xn[flags$med] <- bottom_target; xd <- xn; xd[flags$lg] <- demmig_depth; dn <- VertDistProfile(z_mid,dz,sigmap[ix],xn); dd <- VertDistProfile(z_mid,dz,sigmap[ix],xd); if(bottom <= photic){dd <- 0.5*(dd+dn); dn <- dd}; param$depthNight[,ix] <- dn; param$depthDay[,ix] <- dd
-  phi_day <- calc_light_scalar(profile$I_day_rel, K_L, h_L, L_min, L_max); phi_night <- calc_light_scalar(profile$I_night_rel, K_L, h_L, L_min, L_max)
+  phi_day <- calc_light_scalar(profile$I_day_rel, K_L, h_L, L_min, L_max)
   if (isTRUE(light_bottom_to_one)) {
     bottom_ix <- which.max(z_bot)
     phi_day[bottom_ix] <- 1
-    phi_night[bottom_ix] <- 1
   }
-  surface_ix <- which.min(z_mid)
-  phi_night[surface_ix] <- 1
-  # Smooth nighttime boundary boost: high near surface and bottom, easing toward lower values mid-water.
-  if (length(z_mid) > 1 && max(z_mid) > min(z_mid)) {
-    z01 <- (z_mid - min(z_mid)) / (max(z_mid) - min(z_mid))
-    edge_dist <- pmin(z01, 1 - z01) * 2
-    night_boundary_boost <- 1 - (1 - L_min) * edge_dist
-    phi_night <- pmax(phi_night, night_boundary_boost)
-  }
+  phi_night <- 0.5 * phi_day
   dayout <- nightout <- matrix(0, param$nStages, param$nStages)
   for(i in seq_len(param$nStages)) for(j in seq_len(param$nStages)){dayout[j,i] <- sum(pmin(param$depthDay[,i],param$depthDay[,j])*phi_day); nightout[j,i] <- sum(pmin(param$depthNight[,i],param$depthNight[,j])*phi_night)}
   if (use_legacy_visual) {
