@@ -1436,23 +1436,27 @@ setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/prof
   ixlarge <- which.min(abs(ml_dem - 250))
   param$ixmedium <- ixmedium
   param$ixlarge <- ixlarge
-  idx_be <- param$ixFish[1]:(ix_dem[1] + (ixmedium - 2))
-  if (length(idx_be) > 0 && all(is.finite(idx_be))) {
+  safe_seq <- function(a, b) if (is.finite(a) && is.finite(b) && b >= a) seq.int(a, b) else integer(0)
+  idx_be <- safe_seq(param$ixFish[1], ix_dem[1] + (ixmedium - 2))
+  if (length(idx_be) > 0) {
     param$theta[idx_be, 3:4] <- 0
     if (ixlarge >= (ixmedium + 1)) {
-      idx_smd <- (ix_dem[1] + (ixmedium - 1)):(ix_dem[1] + (ixlarge - 2))
+      idx_smd <- safe_seq(ix_dem[1] + (ixmedium - 1), ix_dem[1] + (ixlarge - 2))
       param$theta[idx_be, idx_smd] <- param$theta[idx_be, idx_smd] * 0.25
     }
   }
-  param$theta[(ix_dem[1] + (ixmedium - 1)):ix_dem[length(ix_dem)], 1:2] <- 0
-  pred1 <- (param$ix[[3]][1] + (ixlarge - 1)):param$ix[[3]][length(param$ix[[3]])]
-  pred2 <- (param$ix[[4]][1] + (ixlarge - 1)):param$ix[[4]][length(param$ix[[4]])]
-  pred3 <- (ix_dem[1] + (ixlarge - 1)):ix_dem[length(ix_dem)]
-  prey1 <- (param$ix[[1]][1] + (ixmedium - 1)):param$ix[[1]][length(param$ix[[1]])]
-  prey2 <- (param$ix[[2]][1] + (ixmedium - 1)):param$ix[[2]][length(param$ix[[2]])]
+  idx_dem_med_lg <- safe_seq(ix_dem[1] + (ixmedium - 1), ix_dem[length(ix_dem)])
+  if (length(idx_dem_med_lg) > 0) param$theta[idx_dem_med_lg, 1:2] <- 0
+  pred1 <- safe_seq(param$ix[[3]][1] + (ixlarge - 1), param$ix[[3]][length(param$ix[[3]])])
+  pred2 <- safe_seq(param$ix[[4]][1] + (ixlarge - 1), param$ix[[4]][length(param$ix[[4]])])
+  pred3 <- safe_seq(ix_dem[1] + (ixlarge - 1), ix_dem[length(ix_dem)])
+  prey1 <- safe_seq(param$ix[[1]][1] + (ixmedium - 1), param$ix[[1]][length(param$ix[[1]])])
+  prey2 <- safe_seq(param$ix[[2]][1] + (ixmedium - 1), param$ix[[2]][length(param$ix[[2]])])
   idx_predat <- c(pred1, pred2, pred3)
   idx_prey <- c(prey1, prey2)
-  param$theta[idx_predat, idx_prey] <- param$theta[idx_predat, idx_prey] * 0.5
+  if (length(idx_predat) > 0 && length(idx_prey) > 0) {
+    param$theta[idx_predat, idx_prey] <- param$theta[idx_predat, idx_prey] * 0.5
+  }
   pO2 <- profile$pO2_kPa; tc <- profile$temp_C; mc <- param$mc
   D_over_S <- outer((Q10_D/Q10_S)^((tc-T_ref_O2)/10), (mc/w_ref_O2)^(b_D-b_S)) * delta_pO2_ref
   pO2int <- pmax(matrix(pO2, Z, param$nStages) - D_over_S, 0)
