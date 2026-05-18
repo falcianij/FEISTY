@@ -841,13 +841,13 @@ simulateFEISTY = function(p      = setupBasic(),
   
   # feeding level
   # "^xx" extracting data starts with "xx"
-  col_f=grep("^f.", colnames(u), value = TRUE)
+  col_f=grep("^f\\.", colnames(u), value = TRUE)
   sim$f=u[,col_f]  
   # predation mortality rate
   col_mortpred=grep("^mortpred", colnames(u), value = TRUE)
   sim$mortpred=u[,col_mortpred]
   # net growth rate
-  col_g=grep("^g.", colnames(u), value = TRUE)
+  col_g=grep("^g\\.", colnames(u), value = TRUE)
   sim$g=u[,col_g]
   # Energy used for reproduction [g/m2/year]
   col_Repro=grep("^Repro", colnames(u), value = TRUE)
