@@ -54,6 +54,7 @@ tStep <- 1
 
 out_dir <- here::here("outputs", "setupVerticalO2_parallel_maps")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+```
 ```{r package-check}
 map_pkgs <- c("sf", "rnaturalearth", "rnaturalearthdata")
 missing_map_pkgs <- map_pkgs[!vapply(map_pkgs, requireNamespace, logical(1), quietly = TRUE)]
