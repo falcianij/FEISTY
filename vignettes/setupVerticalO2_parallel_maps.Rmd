@@ -252,26 +252,48 @@ Unix-like systems it uses forking; on Windows it uses a PSOCK cluster.
 ```{r run-parallel}
 keys <- names(profile_list)
 
+safe_run <- function(k) {
+  tryCatch(
+    run_one_location(profile_list[[k]], k),
+    error = function(e) list(error = conditionMessage(e), key = k)
+  )
+}
+
 if (.Platform$OS.type == "windows" && n_cores > 1) {
   cl <- parallel::makeCluster(n_cores)
   on.exit(parallel::stopCluster(cl), add = TRUE)
   parallel::clusterExport(
     cl,
-    varlist = c("profile_list", "run_one_location", "summarise_final_biomass", "nStages", "tEnd", "tStep"),
+    varlist = c("profile_list", "run_one_location", "summarise_final_biomass", "nStages", "tEnd", "tStep", "safe_run"),
     envir = environment()
   )
   parallel::clusterEvalQ(cl, devtools::load_all(path = here::here()))
-  results <- parallel::parLapply(cl, keys, function(k) run_one_location(profile_list[[k]], k))
+  results <- parallel::parLapply(cl, keys, safe_run)
 } else {
   results <- parallel::mclapply(
     keys,
-    function(k) run_one_location(profile_list[[k]], k),
+    safe_run,
     mc.cores = min(n_cores, length(keys))
   )
 }
 
-biomass_summary <- do.call(rbind, lapply(results, `[[`, "biomass"))
-biomass_difference <- do.call(rbind, lapply(results, `[[`, "difference"))
+ok <- vapply(results, function(x) is.list(x) && all(c("biomass", "difference") %in% names(x)), logical(1))
+if (!all(ok)) {
+  failed <- results[!ok]
+  fail_tbl <- data.frame(
+    key = vapply(failed, function(x) if (!is.null(x$key)) x$key else NA_character_, character(1)),
+    error = vapply(failed, function(x) if (!is.null(x$error)) x$error else "Unknown error", character(1)),
+    stringsAsFactors = FALSE
+  )
+  utils::write.csv(fail_tbl, file.path(out_dir, "failed_locations.csv"), row.names = FALSE)
+  message("Failed locations: ", nrow(fail_tbl), ". See ", file.path(out_dir, "failed_locations.csv"))
+}
+
+results_ok <- results[ok]
+if (length(results_ok) == 0) stop("All locations failed. See failed_locations.csv for details.")
+
+biomass_summary <- do.call(rbind, lapply(results_ok, `[[`, "biomass"))
+biomass_difference <- do.call(rbind, lapply(results_ok, `[[`, "difference"))
 
 utils::write.csv(biomass_summary, file.path(out_dir, "functional_group_biomass_summary.csv"), row.names = FALSE)
 utils::write.csv(biomass_difference, file.path(out_dir, "functional_group_biomass_differences.csv"), row.names = FALSE)
