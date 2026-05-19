@@ -174,15 +174,39 @@ total fish community biomass.
 ```{r worker}
 summarise_final_biomass <- function(sim, condition) {
   p <- sim$p
-  final_group <- as.numeric(sim$totBiomass[sim$nTime, ])
-  names(final_group) <- p$groupnames[-seq_len(p$nResources)]
 
-  data.frame(
+  # Primary source: grouped biomass diagnostics from simulateFEISTY()
+  final_group <- NULL
+  if (!is.null(sim$totBiomass) && NROW(sim$totBiomass) >= sim$nTime && NCOL(sim$totBiomass) > 0) {
+    final_group <- as.numeric(sim$totBiomass[sim$nTime, ])
+    names(final_group) <- p$groupnames[-seq_len(p$nResources)]
+  }
+
+  # Fallback: reconstruct group totals from stage biomasses
+  if (is.null(final_group) || length(final_group) == 0) {
+    if (is.null(sim$B) || NROW(sim$B) < sim$nTime) {
+      stop("No grouped biomass diagnostics and no usable stage biomass matrix in simulation output.")
+    }
+
+    final_group <- vapply(seq_along(p$ix), function(i) {
+      cols <- p$ix[[i]] - p$nResources
+      sum(as.numeric(sim$B[sim$nTime, cols]), na.rm = TRUE)
+    }, numeric(1))
+    names(final_group) <- p$groupnames[p$nResources + seq_along(p$ix)]
+  }
+
+  out <- data.frame(
     condition = condition,
     group = names(final_group),
-    biomass = final_group,
+    biomass = as.numeric(final_group),
     stringsAsFactors = FALSE
   )
+
+  if (nrow(out) == 0) {
+    stop("No rows in summarised biomass output for condition: ", condition)
+  }
+
+  out
 }
 
 run_one_location <- function(profile_one, key) {
