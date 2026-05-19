@@ -45,7 +45,7 @@ n_cores <- 32
 
 # Start-up/test mode: run only first N locations to verify everything works.
 # Set to NULL (or comment this line) for all available lon/lat locations.
-run_first_n_locations <- 10
+run_first_n_locations <- 10  # applied after filtering to valid ocean cells
 
 # Simulation controls
 nStages <- 9
@@ -138,8 +138,28 @@ build_profile_for_cell <- function(ix, iy) {
 }
 
 all_cells <- expand.grid(ix = seq_along(lon), iy = seq_along(lat))
+
+# Filter to valid ocean cells so setup/simulation do not fail at t=0 on land/NA profiles.
+is_valid_cell <- function(ix, iy) {
+  prof <- build_profile_for_cell(ix, iy)
+  req <- c("depth_idx", "depth_mid_m", "depth_top_m", "depth_bot_m", "dz_m",
+           "temp_C", "pO2_kPa", "zmeso", "zmicro", "I_day_rel", "I_night_rel")
+  ok <- stats::complete.cases(prof[, req, drop = FALSE])
+  # Require at least two complete depths and positive layer thickness.
+  sum(ok) >= 2 && all(prof$dz_m[ok] > 0)
+}
+
+valid_mask <- vapply(seq_len(nrow(all_cells)), function(i) {
+  is_valid_cell(all_cells$ix[i], all_cells$iy[i])
+}, logical(1))
+all_cells <- all_cells[valid_mask, , drop = FALSE]
+
 if (!is.null(run_first_n_locations)) {
   all_cells <- utils::head(all_cells, run_first_n_locations)
+}
+
+if (nrow(all_cells) == 0) {
+  stop("No valid ocean profile cells found in NetCDF after filtering.")
 }
 
 profile_rows <- lapply(seq_len(nrow(all_cells)), function(i) build_profile_for_cell(all_cells$ix[i], all_cells$iy[i]))
