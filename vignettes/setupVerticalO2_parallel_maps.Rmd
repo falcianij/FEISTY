@@ -71,102 +71,15 @@ available lon/lat point into FEISTY long-profile rows (hist only).
 
 ```{r load-profiles}
 stopifnot(file.exists(profile_nc_path))
-if (!requireNamespace("ncdf4", quietly = TRUE)) {
-  stop("Please install 'ncdf4' to read NetCDF profiles: install.packages('ncdf4')")
-}
 
-layer_bounds_from_midpoints <- function(mid_m) {
-  mid_m <- as.numeric(mid_m)
-  n <- length(mid_m)
-  if (n <= 1) {
-    top_m <- if (n == 0) numeric(0) else 0
-    bot_m <- if (n == 0) numeric(0) else mid_m * 2
-    dz_m <- bot_m - top_m
-    return(list(top_m = top_m, bot_m = bot_m, dz_m = dz_m))
-  }
-  edges <- rep(NA_real_, n + 1)
-  edges[2:n] <- 0.5 * (mid_m[1:(n - 1)] + mid_m[2:n])
-  edges[1] <- max(0, mid_m[1] - 0.5 * (mid_m[2] - mid_m[1]))
-  edges[n + 1] <- mid_m[n] + 0.5 * (mid_m[n] - mid_m[n - 1])
-  list(top_m = edges[1:n], bot_m = edges[2:(n + 1)], dz_m = edges[2:(n + 1)] - edges[1:n])
-}
+loaded <- read_hist_nc_profiles(
+  nc_hist = profile_nc_path,
+  max_locations = run_first_n_locations,
+  min_valid_depths = 5
+)
 
-nc <- ncdf4::nc_open(profile_nc_path)
-on.exit(ncdf4::nc_close(nc), add = TRUE)
-
-lon <- as.numeric(ncdf4::ncvar_get(nc, "lon"))
-lat <- as.numeric(ncdf4::ncvar_get(nc, "lat"))
-lev <- as.numeric(ncdf4::ncvar_get(nc, "lev"))
-
-T_h <- ncdf4::ncvar_get(nc, "T_mean")
-pO2_h <- ncdf4::ncvar_get(nc, "pO2_mean")
-Z_h <- ncdf4::ncvar_get(nc, "zmeso_mean")
-M_h <- ncdf4::ncvar_get(nc, "zmicro_mean")
-Id_h <- ncdf4::ncvar_get(nc, "I_day")
-In_h <- ncdf4::ncvar_get(nc, "I_night")
-
-bnds <- layer_bounds_from_midpoints(lev)
-depth_idx <- seq_along(lev)
-
-build_profile_for_cell <- function(ix, iy) {
-  lon360 <- lon[ix]
-  lon180 <- ifelse(lon360 > 180, lon360 - 360, lon360)
-  latg <- lat[iy]
-  site_id <- sprintf("grid_%04d_%04d", ix, iy)
-
-  data.frame(
-    site = site_id,
-    lon180_requested = lon180,
-    lat_requested = latg,
-    lon360_grid = lon360,
-    lon180_grid = lon180,
-    lat_grid = latg,
-    depth_idx = depth_idx,
-    depth_mid_m = lev,
-    depth_top_m = bnds$top_m,
-    depth_bot_m = bnds$bot_m,
-    dz_m = bnds$dz_m,
-    scenario = "hist",
-    temp_C = as.numeric(T_h[ix, iy, ]),
-    pO2_kPa = as.numeric(pO2_h[ix, iy, ]),
-    zmeso = as.numeric(Z_h[ix, iy, ]),
-    zmicro = as.numeric(M_h[ix, iy, ]),
-    I_day_rel = as.numeric(Id_h[ix, iy, ]),
-    I_night_rel = as.numeric(In_h[ix, iy, ]),
-    stringsAsFactors = FALSE
-  )
-}
-
-all_cells <- expand.grid(ix = seq_along(lon), iy = seq_along(lat))
-
-# Filter to valid ocean cells so setup/simulation do not fail at t=0 on land/NA profiles.
-is_valid_cell <- function(ix, iy) {
-  prof <- build_profile_for_cell(ix, iy)
-  req <- c("depth_idx", "depth_mid_m", "depth_top_m", "depth_bot_m", "dz_m",
-           "temp_C", "pO2_kPa", "zmeso", "zmicro", "I_day_rel", "I_night_rel")
-  ok <- stats::complete.cases(prof[, req, drop = FALSE])
-  # Require at least two complete depths and positive layer thickness.
-  sum(ok) >= 2 && all(prof$dz_m[ok] > 0)
-}
-
-valid_mask <- vapply(seq_len(nrow(all_cells)), function(i) {
-  is_valid_cell(all_cells$ix[i], all_cells$iy[i])
-}, logical(1))
-all_cells <- all_cells[valid_mask, , drop = FALSE]
-
-if (!is.null(run_first_n_locations)) {
-  all_cells <- utils::head(all_cells, run_first_n_locations)
-}
-
-if (nrow(all_cells) == 0) {
-  stop("No valid ocean profile cells found in NetCDF after filtering.")
-}
-
-profile_rows <- lapply(seq_len(nrow(all_cells)), function(i) build_profile_for_cell(all_cells$ix[i], all_cells$iy[i]))
-profile_all <- do.call(rbind, profile_rows)
-
-profile_all$key <- paste(profile_all$site, profile_all$scenario, sep = "::")
-profile_list <- split(profile_all, profile_all$key)
+profile_all <- loaded$profile_all
+profile_list <- loaded$profile_list
 
 # Persist converted profiles for reproducibility/debugging
 utils::write.csv(profile_all, file.path(out_dir, "profiles_hist_from_nc_long.csv"), row.names = FALSE)
@@ -178,19 +91,6 @@ data.frame(
   min_lat = min(profile_all$lat_grid, na.rm = TRUE),
   max_lat = max(profile_all$lat_grid, na.rm = TRUE)
 )
-```
-
-## Worker function
-
-Each worker runs two matched simulations for one profile:
-
-- `use_oxygen = TRUE`: profile oxygen affects `glvl`.
-- `use_oxygen = FALSE`: no oxygen limitation (`glvl = 1` everywhere), while the
-  same physical/biological profile is otherwise retained.
-
-The saved output is intentionally compact: final functional-group biomasses and
-total fish community biomass.
-
 ```{r worker}
 summarise_final_biomass <- function(sim, condition) {
   p <- sim$p
@@ -276,11 +176,23 @@ run_one_location <- function(profile_one, key) {
   biomass$key <- key
 
   total <- tryCatch(
-    aggregate(biomass ~ condition + site + scenario + lon + lat + key, biomass, sum),
+    aggregate(
+      biomass$biomass,
+      by = list(
+        condition = biomass$condition,
+        site = biomass$site,
+        scenario = biomass$scenario,
+        lon = biomass$lon,
+        lat = biomass$lat,
+        key = biomass$key
+      ),
+      FUN = sum
+    ),
     error = function(e) {
       stop("aggregate() failed for key ", key, ": ", conditionMessage(e))
     }
   )
+  names(total)[names(total) == "x"] <- "biomass"
   if (nrow(total) == 0) {
     stop("aggregate() produced zero rows for key: ", key)
   }
