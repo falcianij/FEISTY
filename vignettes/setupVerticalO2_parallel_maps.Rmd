@@ -265,13 +265,25 @@ run_one_location <- function(profile_one, key) {
     summarise_final_biomass(sim_no_o2, "no_oxygen_limitation")
   )
 
+  if (nrow(biomass) == 0) {
+    stop("No rows returned by summarise_final_biomass for key: ", key)
+  }
+
   biomass$site <- site
   biomass$scenario <- scenario
   biomass$lon <- coord$lon180_grid
   biomass$lat <- coord$lat_grid
   biomass$key <- key
 
-  total <- aggregate(biomass ~ condition + site + scenario + lon + lat + key, biomass, sum)
+  total <- tryCatch(
+    aggregate(biomass ~ condition + site + scenario + lon + lat + key, biomass, sum),
+    error = function(e) {
+      stop("aggregate() failed for key ", key, ": ", conditionMessage(e))
+    }
+  )
+  if (nrow(total) == 0) {
+    stop("aggregate() produced zero rows for key: ", key)
+  }
   total$group <- "total_fish"
   biomass <- rbind(biomass, total[, names(biomass)])
 
@@ -331,7 +343,7 @@ if (!all(ok)) {
     stringsAsFactors = FALSE
   )
   utils::write.csv(fail_tbl, file.path(out_dir, "failed_locations.csv"), row.names = FALSE)
-  message("Failed locations: ", nrow(fail_tbl), ". See ", file.path(out_dir, "failed_locations.csv"))
+  message("Failed locations: ", nrow(fail_tbl), ". See ", file.path(out_dir, "failed_locations.csv"), " (check error column for failing step).")
 }
 
 results_ok <- results[ok]
