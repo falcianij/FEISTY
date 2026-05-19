@@ -1,0 +1,314 @@
+---
+title: "Parallel `setupVerticalO2()` site comparison maps"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Parallel setupVerticalO2 site comparison maps}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 9, fig.height = 5)
+```
+
+## Purpose
+
+This vignette runs `setupVerticalO2()` for any number of profile locations,
+compares simulations **with oxygen limitation** against a **no-oxygen-limitation**
+control (`glvl = 1` everywhere), saves compact biomass summaries, and maps the
+results in a Robinson projection with black landmasses.
+
+The workflow is designed for large profile CSV files:
+
+1. Read the profile table once.
+2. Split profiles by `(site, scenario)`.
+3. Run each site in parallel.
+4. Save only compact functional-group biomass summaries.
+5. Plot total fish community biomass and oxygen-effect difference maps.
+
+## User controls
+
+Edit this chunk for your run. `locations` can be any number of sites. Use
+`locations <- NULL` to run every site/scenario combination available in the
+profile file.
+
+```{r controls}
+devtools::load_all(path = here::here())
+
+profile_path <- here::here("data/profiles_sites_hist_vs_ssp585_long.csv")
+scenario_default <- "hist"
+
+# Any number of site names, or NULL for all sites in the profile file.
+site_names <- c("CCE", "HOTstationALOHA")
+
+# Optional explicit location table. If NULL, it is built from site_names and
+# scenario_default; if site_names is also NULL, all profile site/scenario pairs
+# are used.
+locations <- NULL
+
+# Simulation controls. USEdll = FALSE avoids requiring compiled Fortran and is
+# the default behavior in this branch.
+nStages <- 9
+tEnd <- 50
+tStep <- 1
+n_cores <- max(1, parallel::detectCores() - 1)
+
+out_dir <- here::here("outputs", "setupVerticalO2_parallel_maps")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+## Optional packages for mapping
+
+Mapping requires `sf`, `rnaturalearth`, and `rnaturalearthdata`. The simulation
+and CSV outputs can still run without them; map chunks are skipped with an
+informative message if they are unavailable.
+
+```{r package-check}
+map_pkgs <- c("sf", "rnaturalearth", "rnaturalearthdata")
+missing_map_pkgs <- map_pkgs[!vapply(map_pkgs, requireNamespace, logical(1), quietly = TRUE)]
+can_map <- length(missing_map_pkgs) == 0
+if (!can_map) {
+  message("Install these packages for maps: ", paste(missing_map_pkgs, collapse = ", "))
+}
+```
+
+## Load and split the profile table once
+
+For very large CSVs, this chunk uses `data.table::fread()` when available and
+falls back to `utils::read.csv()`.
+
+```{r load-profiles}
+stopifnot(file.exists(profile_path))
+
+read_profile_table <- function(path) {
+  if (requireNamespace("data.table", quietly = TRUE)) {
+    as.data.frame(data.table::fread(path))
+  } else {
+    utils::read.csv(path, stringsAsFactors = FALSE)
+  }
+}
+
+profile_all <- read_profile_table(profile_path)
+
+if (is.null(locations)) {
+  if (is.null(site_names)) {
+    locations <- unique(profile_all[, c("site", "scenario")])
+  } else {
+    locations <- data.frame(
+      site = site_names,
+      scenario = scenario_default,
+      stringsAsFactors = FALSE
+    )
+  }
+}
+
+locations$key <- paste(locations$site, locations$scenario, sep = "::")
+profile_all$key <- paste(profile_all$site, profile_all$scenario, sep = "::")
+profile_list <- split(profile_all[profile_all$key %in% locations$key, ], profile_all$key[profile_all$key %in% locations$key])
+
+missing_keys <- setdiff(locations$key, names(profile_list))
+if (length(missing_keys) > 0) {
+  stop("Requested site/scenario combinations not found in profile file: ", paste(missing_keys, collapse = ", "))
+}
+
+locations
+```
+
+## Worker function
+
+Each worker runs two matched simulations for one profile:
+
+- `use_oxygen = TRUE`: profile oxygen affects `glvl`.
+- `use_oxygen = FALSE`: no oxygen limitation (`glvl = 1` everywhere), while the
+  same physical/biological profile is otherwise retained.
+
+The saved output is intentionally compact: final functional-group biomasses and
+total fish community biomass.
+
+```{r worker}
+summarise_final_biomass <- function(sim, condition) {
+  p <- sim$p
+  final_group <- as.numeric(sim$totBiomass[sim$nTime, ])
+  names(final_group) <- p$groupnames[-seq_len(p$nResources)]
+
+  data.frame(
+    condition = condition,
+    group = names(final_group),
+    biomass = final_group,
+    stringsAsFactors = FALSE
+  )
+}
+
+run_one_location <- function(profile_one, key) {
+  profile_one <- profile_one[order(profile_one$depth_idx, profile_one$depth_mid_m), ]
+  profile_one$key <- NULL
+
+  coord <- profile_one[stats::complete.cases(profile_one[, c("lon180_grid", "lat_grid")]), ][1, ]
+  site <- as.character(profile_one$site[1])
+  scenario <- as.character(profile_one$scenario[1])
+
+  build_p <- function(use_oxygen) {
+    setupVerticalO2(
+      profile = profile_one,
+      nStages = nStages,
+      use_oxygen = use_oxygen,
+      K_O = 2,
+      h_O = 1,
+      delta_pO2_ref = 2,
+      Q10_D = 2,
+      Q10_S = 1.5,
+      K_L = 0.1,
+      L_min = 0.5,
+      L_max = 1.5,
+      light_bottom_to_one = TRUE
+    )
+  }
+
+  p_o2 <- build_p(TRUE)
+  sim_o2 <- simulateFEISTY(p = p_o2, tEnd = tEnd, tStep = tStep, USEdll = FALSE)
+
+  p_no_o2 <- build_p(FALSE)
+  sim_no_o2 <- simulateFEISTY(p = p_no_o2, tEnd = tEnd, tStep = tStep, USEdll = FALSE)
+
+  biomass <- rbind(
+    summarise_final_biomass(sim_o2, "oxygen_profile"),
+    summarise_final_biomass(sim_no_o2, "no_oxygen_limitation")
+  )
+
+  biomass$site <- site
+  biomass$scenario <- scenario
+  biomass$lon <- coord$lon180_grid
+  biomass$lat <- coord$lat_grid
+  biomass$key <- key
+
+  total <- aggregate(biomass ~ condition + site + scenario + lon + lat + key, biomass, sum)
+  total$group <- "total_fish"
+  biomass <- rbind(biomass, total[, names(biomass)])
+
+  wide <- reshape(
+    biomass[, c("site", "scenario", "lon", "lat", "key", "group", "condition", "biomass")],
+    idvar = c("site", "scenario", "lon", "lat", "key", "group"),
+    timevar = "condition",
+    direction = "wide"
+  )
+  names(wide) <- sub("^biomass\\.", "biomass_", names(wide))
+  wide$biomass_difference <- wide$biomass_oxygen_profile - wide$biomass_no_oxygen_limitation
+  wide$biomass_ratio <- wide$biomass_oxygen_profile / wide$biomass_no_oxygen_limitation
+
+  list(biomass = biomass, difference = wide)
+}
+```
+
+## Run sites in parallel and save outputs
+
+The code uses base R `parallel` so no extra parallel package is required. On
+Unix-like systems it uses forking; on Windows it uses a PSOCK cluster.
+
+```{r run-parallel}
+keys <- names(profile_list)
+
+if (.Platform$OS.type == "windows" && n_cores > 1) {
+  cl <- parallel::makeCluster(n_cores)
+  on.exit(parallel::stopCluster(cl), add = TRUE)
+  parallel::clusterExport(
+    cl,
+    varlist = c("profile_list", "run_one_location", "summarise_final_biomass", "nStages", "tEnd", "tStep"),
+    envir = environment()
+  )
+  parallel::clusterEvalQ(cl, devtools::load_all(path = here::here()))
+  results <- parallel::parLapply(cl, keys, function(k) run_one_location(profile_list[[k]], k))
+} else {
+  results <- parallel::mclapply(
+    keys,
+    function(k) run_one_location(profile_list[[k]], k),
+    mc.cores = min(n_cores, length(keys))
+  )
+}
+
+biomass_summary <- do.call(rbind, lapply(results, `[[`, "biomass"))
+biomass_difference <- do.call(rbind, lapply(results, `[[`, "difference"))
+
+utils::write.csv(biomass_summary, file.path(out_dir, "functional_group_biomass_summary.csv"), row.names = FALSE)
+utils::write.csv(biomass_difference, file.path(out_dir, "functional_group_biomass_differences.csv"), row.names = FALSE)
+saveRDS(results, file.path(out_dir, "setupVerticalO2_parallel_results.rds"))
+
+head(biomass_difference)
+```
+
+## Map helpers
+
+```{r map-helpers, eval=can_map}
+world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+robin_crs <- "+proj=robin +lon_0=0 +datum=WGS84 +units=m +no_defs"
+
+plot_points_robin <- function(data, value, title, legend_title, palette = ggplot2::scale_color_viridis_c()) {
+  pts <- sf::st_as_sf(data, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+  ggplot2::ggplot() +
+    ggplot2::geom_sf(data = world, fill = "black", color = "black", linewidth = 0.1) +
+    ggplot2::geom_sf(data = pts, ggplot2::aes(color = .data[[value]]), size = 2.5) +
+    palette +
+    ggplot2::coord_sf(crs = robin_crs) +
+    ggplot2::labs(title = title, color = legend_title) +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(panel.grid.major = ggplot2::element_line(color = "grey85", linewidth = 0.2))
+}
+```
+
+## Total fish community biomass maps
+
+```{r total-biomass-map, fig.height=5.5, eval=can_map}
+total_biomass <- subset(biomass_summary, group == "total_fish")
+p_total_biomass <- plot_points_robin(
+  subset(total_biomass, condition == "oxygen_profile"),
+  value = "biomass",
+  title = "Total fish biomass with profile oxygen",
+  legend_title = "g m^-2"
+)
+ggplot2::ggsave(file.path(out_dir, "map_total_fish_biomass_oxygen_profile.png"), p_total_biomass, width = 10, height = 6, dpi = 300)
+p_total_biomass
+```
+
+```{r total-difference-map, fig.height=5.5, eval=can_map}
+total_diff <- subset(biomass_difference, group == "total_fish")
+p_total_diff <- plot_points_robin(
+  total_diff,
+  value = "biomass_difference",
+  title = "Total fish biomass difference: oxygen profile - no oxygen limitation",
+  legend_title = "difference (g m^-2)",
+  palette = ggplot2::scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0)
+)
+ggplot2::ggsave(file.path(out_dir, "map_total_fish_biomass_difference.png"), p_total_diff, width = 10, height = 6, dpi = 300)
+p_total_diff
+```
+
+## Functional-group biomass difference maps
+
+```{r group-difference-maps, fig.height=8, eval=can_map}
+group_diff <- subset(biomass_difference, group != "total_fish")
+group_diff_sf <- sf::st_as_sf(group_diff, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+
+p_group_diff <- ggplot2::ggplot() +
+  ggplot2::geom_sf(data = world, fill = "black", color = "black", linewidth = 0.1) +
+  ggplot2::geom_sf(data = group_diff_sf, ggplot2::aes(color = biomass_difference), size = 2.2) +
+  ggplot2::scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  ggplot2::coord_sf(crs = robin_crs) +
+  ggplot2::facet_wrap(~ group) +
+  ggplot2::labs(
+    title = "Functional group biomass difference: oxygen profile - no oxygen limitation",
+    color = "difference (g m^-2)"
+  ) +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(panel.grid.major = ggplot2::element_line(color = "grey85", linewidth = 0.2))
+
+ggplot2::ggsave(file.path(out_dir, "map_functional_group_biomass_differences.png"), p_group_diff, width = 12, height = 8, dpi = 300)
+p_group_diff
+```
+
+## Notes
+
+- For global runs, set `site_names <- NULL` and increase `n_cores` as needed.
+- Outputs are saved in `out_dir`, so the full simulation objects do not need to
+  be kept in memory after mapping.
+- The no-oxygen control is intentionally `use_oxygen = FALSE`; do not replace
+  the observed oxygen profile with an artificial high-pO2 column for this
+  comparison.

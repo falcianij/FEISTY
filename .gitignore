@@ -10,3 +10,11 @@ README.html
 *.mod
 *.dll
 *.DLL
+
+# Large generated/downloaded vertical forcing profile files.
+# Keep small example files only if they are explicitly tracked in git.
+data/profiles_*_hist_vs_ssp585_long.csv
+data/profiles_*_hist_vs_ssp585_long.csv.gz
+
+# Vignette/run outputs
+outputs/
