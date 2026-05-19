@@ -19,6 +19,38 @@ layer_bounds_from_midpoints <- function(mid_m) {
   list(top_m = edges[1:n], bot_m = edges[2:(n + 1)], dz_m = edges[2:(n + 1)] - edges[1:n])
 }
 
+
+read_var_lon_lat_lev <- function(nc, varname, lon_n, lat_n, lev_n) {
+  var <- nc$var[[varname]]
+  if (is.null(var)) stop("Variable not found in NetCDF: ", varname)
+
+  arr <- ncdf4::ncvar_get(nc, varname)
+  if (length(dim(arr)) != 3L) stop("Expected 3D variable for ", varname, ", got rank ", length(dim(arr)))
+
+  dnames <- tolower(vapply(var$dim, function(d) d$name, character(1)))
+  pick_idx <- function(keys) {
+    hit <- which(vapply(keys, function(k) any(grepl(k, dnames, fixed = TRUE)), logical(1)))
+    if (length(hit) == 0) return(NA_integer_)
+    key <- keys[hit[1]]
+    which(grepl(key, dnames, fixed = TRUE))[1]
+  }
+
+  i_lon <- pick_idx(c("lon", "x"))
+  i_lat <- pick_idx(c("lat", "y"))
+  i_lev <- pick_idx(c("lev", "depth", "z"))
+  if (anyNA(c(i_lon, i_lat, i_lev))) {
+    stop("Could not infer lon/lat/lev dimensions for ", varname, "; dims are: ", paste(dnames, collapse = ","))
+  }
+
+  arr <- aperm(arr, c(i_lon, i_lat, i_lev))
+  d <- dim(arr)
+  if (!identical(as.integer(d), c(as.integer(lon_n), as.integer(lat_n), as.integer(lev_n)))) {
+    stop("Dimension mismatch for ", varname, " after permute: got ", paste(d, collapse = "x"),
+         ", expected ", paste(c(lon_n, lat_n, lev_n), collapse = "x"))
+  }
+  arr
+}
+
 is_valid_profile_vectors <- function(temp_C, pO2_kPa, zmeso, zmicro, I_day_rel, I_night_rel,
                                      dz_m, min_valid_depths = 5L) {
   ok <- is.finite(temp_C) & is.finite(pO2_kPa) & is.finite(zmeso) &
@@ -26,6 +58,9 @@ is_valid_profile_vectors <- function(temp_C, pO2_kPa, zmeso, zmicro, I_day_rel, 
 
   if (sum(ok) < min_valid_depths) return(FALSE)
   if (any(dz_m[ok] <= 0)) return(FALSE)
+  # Light should be relative [0,1], allow small numerical slack.
+  if (any(I_day_rel[ok] < -1e-6 | I_day_rel[ok] > 1 + 1e-6)) return(FALSE)
+  if (any(I_night_rel[ok] < -1e-6 | I_night_rel[ok] > 1 + 1e-6)) return(FALSE)
 
   TRUE
 }
@@ -43,12 +78,12 @@ read_hist_nc_profiles <- function(nc_hist, max_locations = NULL, min_valid_depth
   lat <- as.numeric(ncdf4::ncvar_get(nc, "lat"))
   lev <- as.numeric(ncdf4::ncvar_get(nc, "lev"))
 
-  T_h <- ncdf4::ncvar_get(nc, "T_mean")
-  pO2_h <- ncdf4::ncvar_get(nc, "pO2_mean")
-  Z_h <- ncdf4::ncvar_get(nc, "zmeso_mean")
-  M_h <- ncdf4::ncvar_get(nc, "zmicro_mean")
-  Id_h <- ncdf4::ncvar_get(nc, "I_day")
-  In_h <- ncdf4::ncvar_get(nc, "I_night")
+  T_h <- read_var_lon_lat_lev(nc, "T_mean", length(lon), length(lat), length(lev))
+  pO2_h <- read_var_lon_lat_lev(nc, "pO2_mean", length(lon), length(lat), length(lev))
+  Z_h <- read_var_lon_lat_lev(nc, "zmeso_mean", length(lon), length(lat), length(lev))
+  M_h <- read_var_lon_lat_lev(nc, "zmicro_mean", length(lon), length(lat), length(lev))
+  Id_h <- read_var_lon_lat_lev(nc, "I_day", length(lon), length(lat), length(lev))
+  In_h <- read_var_lon_lat_lev(nc, "I_night", length(lon), length(lat), length(lev))
 
   bnds <- layer_bounds_from_midpoints(lev)
   depth_idx <- seq_along(lev)
