@@ -18,3 +18,7 @@ data/profiles_*_hist_vs_ssp585_long.csv.gz
 
 # Vignette/run outputs
 outputs/
+# Local/global profile NetCDF forcing files
+profiles_hist_last10y.nc
+data/profiles_hist_last10y.nc
+data/derived/gfdl_profiles/*.nc
