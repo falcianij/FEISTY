@@ -28,41 +28,32 @@ The workflow is designed for large profile CSV files:
 
 ## User controls
 
-Edit this chunk for your run. `locations` can be any number of sites. Use
-`locations <- NULL` to run every site/scenario combination available in the
-profile file.
+Edit this chunk for your run. The key knobs are `n_cores` and
+`run_first_n_locations` (set to `NULL` for all lon/lat cells in the NetCDF).
 
 ```{r controls}
 devtools::load_all(path = here::here())
 
-profile_path <- here::here("data/profiles_sites_hist_vs_ssp585_long.csv")
-scenario_default <- "hist"
+# --------------------------
+# Obvious run controls
+# --------------------------
+# NetCDF source (hist only)
+profile_nc_path <- here::here("data/profiles_hist_last10y.nc")
 
-# Any number of site names, or NULL for all sites in the profile file.
-site_names <- c("CCE", "HOTstationALOHA")
+# Explicit parallel setting for server runs (edit as needed)
+n_cores <- 32
 
-# Optional explicit location table. If NULL, it is built from site_names and
-# scenario_default; if site_names is also NULL, all profile site/scenario pairs
-# are used.
-locations <- NULL
+# Start-up/test mode: run only first N locations to verify everything works.
+# Set to NULL (or comment this line) for all available lon/lat locations.
+run_first_n_locations <- 10
 
-# Simulation controls. USEdll = FALSE avoids requiring compiled Fortran and is
-# the default behavior in this branch.
+# Simulation controls
 nStages <- 9
 tEnd <- 50
 tStep <- 1
-n_cores <- max(1, parallel::detectCores() - 1)
 
 out_dir <- here::here("outputs", "setupVerticalO2_parallel_maps")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-```
-
-## Optional packages for mapping
-
-Mapping requires `sf`, `rnaturalearth`, and `rnaturalearthdata`. The simulation
-and CSV outputs can still run without them; map chunks are skipped with an
-informative message if they are unavailable.
-
 ```{r package-check}
 map_pkgs <- c("sf", "rnaturalearth", "rnaturalearthdata")
 missing_map_pkgs <- map_pkgs[!vapply(map_pkgs, requireNamespace, logical(1), quietly = TRUE)]
@@ -74,44 +65,98 @@ if (!can_map) {
 
 ## Load and split the profile table once
 
-For very large CSVs, this chunk uses `data.table::fread()` when available and
-falls back to `utils::read.csv()`.
+For very large workflows, this chunk reads the NetCDF once and converts every
+available lon/lat point into FEISTY long-profile rows (hist only).
 
 ```{r load-profiles}
-stopifnot(file.exists(profile_path))
-
-read_profile_table <- function(path) {
-  if (requireNamespace("data.table", quietly = TRUE)) {
-    as.data.frame(data.table::fread(path))
-  } else {
-    utils::read.csv(path, stringsAsFactors = FALSE)
-  }
+stopifnot(file.exists(profile_nc_path))
+if (!requireNamespace("ncdf4", quietly = TRUE)) {
+  stop("Please install 'ncdf4' to read NetCDF profiles: install.packages('ncdf4')")
 }
 
-profile_all <- read_profile_table(profile_path)
-
-if (is.null(locations)) {
-  if (is.null(site_names)) {
-    locations <- unique(profile_all[, c("site", "scenario")])
-  } else {
-    locations <- data.frame(
-      site = site_names,
-      scenario = scenario_default,
-      stringsAsFactors = FALSE
-    )
+layer_bounds_from_midpoints <- function(mid_m) {
+  mid_m <- as.numeric(mid_m)
+  n <- length(mid_m)
+  if (n <= 1) {
+    top_m <- if (n == 0) numeric(0) else 0
+    bot_m <- if (n == 0) numeric(0) else mid_m * 2
+    dz_m <- bot_m - top_m
+    return(list(top_m = top_m, bot_m = bot_m, dz_m = dz_m))
   }
+  edges <- rep(NA_real_, n + 1)
+  edges[2:n] <- 0.5 * (mid_m[1:(n - 1)] + mid_m[2:n])
+  edges[1] <- max(0, mid_m[1] - 0.5 * (mid_m[2] - mid_m[1]))
+  edges[n + 1] <- mid_m[n] + 0.5 * (mid_m[n] - mid_m[n - 1])
+  list(top_m = edges[1:n], bot_m = edges[2:(n + 1)], dz_m = edges[2:(n + 1)] - edges[1:n])
 }
 
-locations$key <- paste(locations$site, locations$scenario, sep = "::")
+nc <- ncdf4::nc_open(profile_nc_path)
+on.exit(ncdf4::nc_close(nc), add = TRUE)
+
+lon <- as.numeric(ncdf4::ncvar_get(nc, "lon"))
+lat <- as.numeric(ncdf4::ncvar_get(nc, "lat"))
+lev <- as.numeric(ncdf4::ncvar_get(nc, "lev"))
+
+T_h <- ncdf4::ncvar_get(nc, "T_mean")
+pO2_h <- ncdf4::ncvar_get(nc, "pO2_mean")
+Z_h <- ncdf4::ncvar_get(nc, "zmeso_mean")
+M_h <- ncdf4::ncvar_get(nc, "zmicro_mean")
+Id_h <- ncdf4::ncvar_get(nc, "I_day")
+In_h <- ncdf4::ncvar_get(nc, "I_night")
+
+bnds <- layer_bounds_from_midpoints(lev)
+depth_idx <- seq_along(lev)
+
+build_profile_for_cell <- function(ix, iy) {
+  lon360 <- lon[ix]
+  lon180 <- ifelse(lon360 > 180, lon360 - 360, lon360)
+  latg <- lat[iy]
+  site_id <- sprintf("grid_%04d_%04d", ix, iy)
+
+  data.frame(
+    site = site_id,
+    lon180_requested = lon180,
+    lat_requested = latg,
+    lon360_grid = lon360,
+    lon180_grid = lon180,
+    lat_grid = latg,
+    depth_idx = depth_idx,
+    depth_mid_m = lev,
+    depth_top_m = bnds$top_m,
+    depth_bot_m = bnds$bot_m,
+    dz_m = bnds$dz_m,
+    scenario = "hist",
+    temp_C = as.numeric(T_h[ix, iy, ]),
+    pO2_kPa = as.numeric(pO2_h[ix, iy, ]),
+    zmeso = as.numeric(Z_h[ix, iy, ]),
+    zmicro = as.numeric(M_h[ix, iy, ]),
+    I_day_rel = as.numeric(Id_h[ix, iy, ]),
+    I_night_rel = as.numeric(In_h[ix, iy, ]),
+    stringsAsFactors = FALSE
+  )
+}
+
+all_cells <- expand.grid(ix = seq_along(lon), iy = seq_along(lat))
+if (!is.null(run_first_n_locations)) {
+  all_cells <- utils::head(all_cells, run_first_n_locations)
+}
+
+profile_rows <- lapply(seq_len(nrow(all_cells)), function(i) build_profile_for_cell(all_cells$ix[i], all_cells$iy[i]))
+profile_all <- do.call(rbind, profile_rows)
+
 profile_all$key <- paste(profile_all$site, profile_all$scenario, sep = "::")
-profile_list <- split(profile_all[profile_all$key %in% locations$key, ], profile_all$key[profile_all$key %in% locations$key])
+profile_list <- split(profile_all, profile_all$key)
 
-missing_keys <- setdiff(locations$key, names(profile_list))
-if (length(missing_keys) > 0) {
-  stop("Requested site/scenario combinations not found in profile file: ", paste(missing_keys, collapse = ", "))
-}
+# Persist converted profiles for reproducibility/debugging
+utils::write.csv(profile_all, file.path(out_dir, "profiles_hist_from_nc_long.csv"), row.names = FALSE)
 
-locations
+data.frame(
+  n_locations = length(profile_list),
+  min_lon = min(profile_all$lon180_grid, na.rm = TRUE),
+  max_lon = max(profile_all$lon180_grid, na.rm = TRUE),
+  min_lat = min(profile_all$lat_grid, na.rm = TRUE),
+  max_lat = max(profile_all$lat_grid, na.rm = TRUE)
+)
 ```
 
 ## Worker function
@@ -306,7 +351,7 @@ p_group_diff
 
 ## Notes
 
-- For global runs, set `site_names <- NULL` and increase `n_cores` as needed.
+- For full global runs from NetCDF, set `run_first_n_locations <- NULL` and keep `n_cores <- 32` (or edit).
 - Outputs are saved in `out_dir`, so the full simulation objects do not need to
   be kept in memory after mapping.
 - The no-oxygen control is intentionally `use_oxygen = FALSE`; do not replace
