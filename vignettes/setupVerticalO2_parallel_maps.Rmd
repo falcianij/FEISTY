@@ -67,6 +67,9 @@ rebuild_profiles_cache <- FALSE
 
 # Writing CSV is expensive for very large grids; keep FALSE for production runs
 write_profiles_csv <- FALSE
+
+# If cache looks smaller than requested, rebuild automatically
+auto_rebuild_if_cache_too_small <- TRUE
 ```
 ```{r package-check}
 map_pkgs <- c("sf", "rnaturalearth", "rnaturalearthdata")
@@ -85,8 +88,25 @@ profile table once (`.rds`) and reusing it in subsequent runs.
 ```{r load-profiles}
 if (isTRUE(use_cached_profiles) && !isTRUE(rebuild_profiles_cache) && file.exists(profiles_cache_rds)) {
   message("Loading cached profiles from: ", profiles_cache_rds)
-  profile_all <- readRDS(profiles_cache_rds)
-} else {
+  cached_obj <- readRDS(profiles_cache_rds)
+  if (is.data.frame(cached_obj)) {
+    profile_all <- cached_obj
+  } else if (is.list(cached_obj) && !is.null(cached_obj$profile_all)) {
+    profile_all <- cached_obj$profile_all
+  } else {
+    stop("Unrecognized cache format in: ", profiles_cache_rds)
+  }
+
+  n_cached <- length(unique(paste(profile_all$site, profile_all$scenario, sep = "::")))
+  too_small_for_request <- !is.null(run_first_n_locations) && (n_cached < run_first_n_locations)
+  suspicious_for_full_run <- is.null(run_first_n_locations) && (n_cached <= 100)
+  if (isTRUE(auto_rebuild_if_cache_too_small) && (too_small_for_request || suspicious_for_full_run)) {
+    message("Cached locations = ", n_cached, "; rebuilding full cache from NetCDF.")
+    rebuild_profiles_cache <- TRUE
+  }
+}
+
+if (!isTRUE(use_cached_profiles) || isTRUE(rebuild_profiles_cache) || !file.exists(profiles_cache_rds)) {
   stopifnot(file.exists(profile_nc_path))
   message("Reading NetCDF and building profile table from: ", profile_nc_path)
   loaded <- read_hist_nc_profiles(
@@ -99,7 +119,15 @@ if (isTRUE(use_cached_profiles) && !isTRUE(rebuild_profiles_cache) && file.exist
   profile_all <- loaded$profile_all
 
   # Fast binary cache for repeat runs.
-  saveRDS(profile_all, profiles_cache_rds, compress = FALSE)
+  saveRDS(
+    list(
+      profile_all = profile_all,
+      n_locations = length(unique(paste(profile_all$site, profile_all$scenario, sep = "::"))),
+      created_utc = as.character(Sys.time())
+    ),
+    profiles_cache_rds,
+    compress = FALSE
+  )
   message("Saved profile cache: ", profiles_cache_rds)
 
   # Optional CSV export for interoperability/debugging only.
