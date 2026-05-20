@@ -45,11 +45,11 @@ n_cores <- 32
 
 # Start-up/test mode: run only first N locations to verify everything works.
 # Set to NULL (or comment this line) for all available lon/lat locations.
-run_first_n_locations <- 10  # applied after filtering to valid ocean cells
+run_first_n_locations <- NULL  # applied after filtering to valid ocean cells
 
 # Simulation controls
 nStages <- 9
-tEnd <- 50
+tEnd <- 100
 tStep <- 1
 
 out_dir <- here::here("outputs", "setupVerticalO2_parallel_maps")
