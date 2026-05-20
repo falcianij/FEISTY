@@ -144,6 +144,7 @@ infer_cell_size <- function(x) {
 }
 
 plot_raster_robin <- function(data, value, title, legend_title, palette = ggplot2::scale_fill_viridis_c()) {
+  if (nrow(data) == 0) stop("No rows to plot after filtering.")
   dx <- infer_cell_size(data$lon)
   dy <- infer_cell_size(data$lat)
 
@@ -151,7 +152,11 @@ plot_raster_robin <- function(data, value, title, legend_title, palette = ggplot
     ggplot2::geom_tile(width = dx, height = dy) +
     ggplot2::geom_sf(data = world, fill = "black", color = "black", linewidth = 0.1, inherit.aes = FALSE) +
     palette +
-    ggplot2::coord_sf(crs = robin_crs, expand = FALSE) +
+    ggplot2::coord_sf(
+      crs = sf::st_crs(robin_crs),
+      default_crs = sf::st_crs(4326),
+      expand = FALSE
+    ) +
     ggplot2::labs(title = title, fill = legend_title) +
     ggplot2::theme_minimal()
 }
@@ -192,12 +197,17 @@ p_total_diff
 
 ```{r group-difference-maps, fig.height=8, eval=can_map}
 group_diff <- subset(biomass_difference, group != "total_fish")
+if (nrow(group_diff) == 0) stop("No functional-group rows available for plotting.")
 
 p_group_diff <- ggplot2::ggplot(group_diff, ggplot2::aes(x = lon, y = lat, fill = biomass_difference)) +
   ggplot2::geom_tile(width = infer_cell_size(group_diff$lon), height = infer_cell_size(group_diff$lat)) +
   ggplot2::geom_sf(data = world, fill = "black", color = "black", linewidth = 0.1, inherit.aes = FALSE) +
   ggplot2::scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
-  ggplot2::coord_sf(crs = robin_crs, expand = FALSE) +
+  ggplot2::coord_sf(
+      crs = sf::st_crs(robin_crs),
+      default_crs = sf::st_crs(4326),
+      expand = FALSE
+    ) +
   ggplot2::facet_wrap(~ group) +
   ggplot2::labs(
     title = "Functional-group biomass difference: profile O2 - no oxygen limitation",
