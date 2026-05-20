@@ -54,6 +54,19 @@ tStep <- 1
 
 out_dir <- here::here("outputs", "setupVerticalO2_parallel_maps")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Cache files to avoid re-reading/re-converting NetCDF every run
+profiles_cache_rds <- file.path(out_dir, "profiles_hist_from_nc_long.rds")
+profiles_cache_csv <- file.path(out_dir, "profiles_hist_from_nc_long.csv")
+
+# If TRUE and cache exists, skip NetCDF conversion and load cache directly
+use_cached_profiles <- TRUE
+
+# If TRUE, regenerate cache from NetCDF (overrides use_cached_profiles)
+rebuild_profiles_cache <- FALSE
+
+# Writing CSV is expensive for very large grids; keep FALSE for production runs
+write_profiles_csv <- FALSE
 ```
 ```{r package-check}
 map_pkgs <- c("sf", "rnaturalearth", "rnaturalearthdata")
@@ -66,23 +79,42 @@ if (!can_map) {
 
 ## Load and split the profile table once
 
-For very large workflows, this chunk reads the NetCDF once and converts every
-available lon/lat point into FEISTY long-profile rows (hist only).
+For very large workflows, avoid repeated NetCDF conversion by caching the
+profile table once (`.rds`) and reusing it in subsequent runs.
 
 ```{r load-profiles}
-stopifnot(file.exists(profile_nc_path))
+if (isTRUE(use_cached_profiles) && !isTRUE(rebuild_profiles_cache) && file.exists(profiles_cache_rds)) {
+  message("Loading cached profiles from: ", profiles_cache_rds)
+  profile_all <- readRDS(profiles_cache_rds)
+} else {
+  stopifnot(file.exists(profile_nc_path))
+  message("Reading NetCDF and building profile table from: ", profile_nc_path)
+  loaded <- read_hist_nc_profiles(
+    nc_hist = profile_nc_path,
+    max_locations = run_first_n_locations,
+    min_valid_depths = 5
+  )
+  profile_all <- loaded$profile_all
 
-loaded <- read_hist_nc_profiles(
-  nc_hist = profile_nc_path,
-  max_locations = run_first_n_locations,
-  min_valid_depths = 5
-)
+  # Fast binary cache for repeat runs.
+  saveRDS(profile_all, profiles_cache_rds, compress = FALSE)
+  message("Saved profile cache: ", profiles_cache_rds)
 
-profile_all <- loaded$profile_all
-profile_list <- loaded$profile_list
+  # Optional CSV export for interoperability/debugging only.
+  if (isTRUE(write_profiles_csv)) {
+    utils::write.csv(profile_all, profiles_cache_csv, row.names = FALSE)
+    message("Saved profile CSV: ", profiles_cache_csv)
+  }
+}
 
-# Persist converted profiles for reproducibility/debugging
-utils::write.csv(profile_all, file.path(out_dir, "profiles_hist_from_nc_long.csv"), row.names = FALSE)
+if (!is.null(run_first_n_locations)) {
+  keep_keys <- unique(paste(profile_all$site, profile_all$scenario, sep = "::"))
+  keep_keys <- head(keep_keys, run_first_n_locations)
+  profile_all <- profile_all[paste(profile_all$site, profile_all$scenario, sep = "::") %in% keep_keys, , drop = FALSE]
+}
+
+profile_all$key <- paste(profile_all$site, profile_all$scenario, sep = "::")
+profile_list <- split(profile_all, profile_all$key)
 
 data.frame(
   n_locations = length(profile_list),
