@@ -91,7 +91,9 @@ if (isTRUE(use_cached_profiles) && !isTRUE(rebuild_profiles_cache) && file.exist
   message("Reading NetCDF and building profile table from: ", profile_nc_path)
   loaded <- read_hist_nc_profiles(
     nc_hist = profile_nc_path,
-    max_locations = run_first_n_locations,
+    # Always cache the full valid grid so later runs can subset cheaply
+    # without being stuck with a previously truncated cache.
+    max_locations = NULL,
     min_valid_depths = 5
   )
   profile_all <- loaded$profile_all
@@ -112,6 +114,11 @@ if (!is.null(run_first_n_locations)) {
   keep_keys <- head(keep_keys, run_first_n_locations)
   profile_all <- profile_all[paste(profile_all$site, profile_all$scenario, sep = "::") %in% keep_keys, , drop = FALSE]
 }
+
+message(
+  "Locations available after optional subsetting: ",
+  length(unique(paste(profile_all$site, profile_all$scenario, sep = "::")))
+)
 
 profile_all$key <- paste(profile_all$site, profile_all$scenario, sep = "::")
 profile_list <- split(profile_all, profile_all$key)
