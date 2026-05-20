@@ -1,0 +1,210 @@
+---
+title: "Plot saved `setupVerticalO2()` map outputs (no rerun)"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Plot saved setupVerticalO2 map outputs without rerunning parallel analysis}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 9, fig.height = 5)
+```
+
+## Purpose
+
+This vignette **only reads saved CSV outputs** from
+`setupVerticalO2_parallel_maps.Rmd` and generates the maps, so you do not need
+to rerun the full parallel simulation.
+
+It also fixes common plotting failures by:
+
+1. coercing coordinate/value columns to numeric,
+2. dropping non-finite rows,
+3. aggregating duplicate `(lon, lat, group, condition)` cells,
+4. rebuilding `biomass_difference` if needed from `biomass_summary`.
+
+## User controls
+
+```{r controls}
+out_dir <- here::here("outputs", "setupVerticalO2_parallel_maps")
+summary_file <- file.path(out_dir, "functional_group_biomass_summary.csv")
+diff_file <- file.path(out_dir, "functional_group_biomass_differences.csv")
+
+stopifnot(file.exists(summary_file))
+```
+
+```{r package-check}
+map_pkgs <- c("sf", "rnaturalearth", "rnaturalearthdata", "ggplot2")
+missing_map_pkgs <- map_pkgs[!vapply(map_pkgs, requireNamespace, logical(1), quietly = TRUE)]
+can_map <- length(missing_map_pkgs) == 0
+if (!can_map) {
+  message("Install these packages for maps: ", paste(missing_map_pkgs, collapse = ", "))
+}
+```
+
+## Load and repair saved outputs
+
+```{r load-and-repair}
+biomass_summary <- utils::read.csv(summary_file, stringsAsFactors = FALSE)
+
+required_summary_cols <- c("condition", "group", "biomass", "site", "scenario", "lon", "lat", "key")
+missing_summary_cols <- setdiff(required_summary_cols, names(biomass_summary))
+if (length(missing_summary_cols) > 0) {
+  stop("Summary file is missing required columns: ", paste(missing_summary_cols, collapse = ", "))
+}
+
+# Coerce columns that frequently break geom_tile when read from CSV
+biomass_summary$lon <- suppressWarnings(as.numeric(biomass_summary$lon))
+biomass_summary$lat <- suppressWarnings(as.numeric(biomass_summary$lat))
+biomass_summary$biomass <- suppressWarnings(as.numeric(biomass_summary$biomass))
+
+biomass_summary <- biomass_summary[
+  is.finite(biomass_summary$lon) &
+    is.finite(biomass_summary$lat) &
+    is.finite(biomass_summary$biomass),
+  , drop = FALSE
+]
+
+# Aggregate duplicate cells (e.g., multiple scenarios per location)
+biomass_summary <- stats::aggregate(
+  biomass ~ condition + group + lon + lat,
+  data = biomass_summary,
+  FUN = mean
+)
+
+if (nrow(biomass_summary) == 0) {
+  stop("No valid rows remain in biomass_summary after numeric coercion/cleaning.")
+}
+
+if (file.exists(diff_file)) {
+  biomass_difference <- utils::read.csv(diff_file, stringsAsFactors = FALSE)
+
+  required_diff_cols <- c("group", "lon", "lat", "biomass_difference")
+  missing_diff_cols <- setdiff(required_diff_cols, names(biomass_difference))
+
+  if (length(missing_diff_cols) > 0) {
+    message("Difference file exists but is missing required columns; rebuilding from summary.")
+    biomass_difference <- NULL
+  } else {
+    biomass_difference$lon <- suppressWarnings(as.numeric(biomass_difference$lon))
+    biomass_difference$lat <- suppressWarnings(as.numeric(biomass_difference$lat))
+    biomass_difference$biomass_difference <- suppressWarnings(as.numeric(biomass_difference$biomass_difference))
+
+    biomass_difference <- biomass_difference[
+      is.finite(biomass_difference$lon) &
+        is.finite(biomass_difference$lat) &
+        is.finite(biomass_difference$biomass_difference),
+      , drop = FALSE
+    ]
+
+    biomass_difference <- stats::aggregate(
+      biomass_difference ~ group + lon + lat,
+      data = biomass_difference,
+      FUN = mean
+    )
+  }
+} else {
+  biomass_difference <- NULL
+}
+
+if (is.null(biomass_difference)) {
+  wide <- reshape(
+    biomass_summary,
+    idvar = c("group", "lon", "lat"),
+    timevar = "condition",
+    direction = "wide"
+  )
+  names(wide) <- sub("^biomass\\.", "biomass_", names(wide))
+
+  needed <- c("biomass_oxygen_profile", "biomass_no_oxygen_limitation")
+  if (!all(needed %in% names(wide))) {
+    stop("Cannot rebuild differences: expected columns ", paste(needed, collapse = ", "), " in reshaped summary.")
+  }
+
+  wide$biomass_difference <- wide$biomass_oxygen_profile - wide$biomass_no_oxygen_limitation
+  biomass_difference <- wide[, c("group", "lon", "lat", "biomass_difference")]
+}
+
+head(biomass_summary)
+head(biomass_difference)
+```
+
+## Map helpers
+
+```{r map-helpers, eval=can_map}
+world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+robin_crs <- "+proj=robin +lon_0=0 +datum=WGS84 +units=m +no_defs"
+
+infer_cell_size <- function(x) {
+  ux <- sort(unique(x[is.finite(x)]))
+  if (length(ux) < 2) return(1)
+  d <- min(diff(ux), na.rm = TRUE)
+  if (!is.finite(d) || d <= 0) 1 else d
+}
+
+plot_raster_robin <- function(data, value, title, legend_title, palette = ggplot2::scale_fill_viridis_c()) {
+  dx <- infer_cell_size(data$lon)
+  dy <- infer_cell_size(data$lat)
+
+  ggplot2::ggplot(data, ggplot2::aes(x = lon, y = lat, fill = .data[[value]])) +
+    ggplot2::geom_tile(width = dx, height = dy) +
+    ggplot2::geom_sf(data = world, fill = "black", color = "black", linewidth = 0.1, inherit.aes = FALSE) +
+    palette +
+    ggplot2::coord_sf(crs = robin_crs, expand = FALSE) +
+    ggplot2::labs(title = title, fill = legend_title) +
+    ggplot2::theme_minimal()
+}
+```
+
+## Total fish community biomass maps
+
+```{r total-biomass-map, fig.height=5.5, eval=can_map}
+total_biomass <- subset(biomass_summary, group == "total_fish" & condition == "oxygen_profile")
+
+p_total_biomass <- plot_raster_robin(
+  total_biomass,
+  value = "biomass",
+  title = "Total fish biomass with profile O2",
+  legend_title = "g m-2"
+)
+
+ggplot2::ggsave(file.path(out_dir, "map_total_fish_biomass_oxygen_profile_from_saved.png"), p_total_biomass, width = 10, height = 6, dpi = 300)
+p_total_biomass
+```
+
+```{r total-difference-map, fig.height=5.5, eval=can_map}
+total_diff <- subset(biomass_difference, group == "total_fish")
+
+p_total_diff <- plot_raster_robin(
+  total_diff,
+  value = "biomass_difference",
+  title = "Total fish biomass difference: profile O2 - no oxygen limitation",
+  legend_title = "Difference (g m-2)",
+  palette = ggplot2::scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0)
+)
+
+ggplot2::ggsave(file.path(out_dir, "map_total_fish_biomass_difference_from_saved.png"), p_total_diff, width = 10, height = 6, dpi = 300)
+p_total_diff
+```
+
+## Functional-group biomass difference maps
+
+```{r group-difference-maps, fig.height=8, eval=can_map}
+group_diff <- subset(biomass_difference, group != "total_fish")
+
+p_group_diff <- ggplot2::ggplot(group_diff, ggplot2::aes(x = lon, y = lat, fill = biomass_difference)) +
+  ggplot2::geom_tile(width = infer_cell_size(group_diff$lon), height = infer_cell_size(group_diff$lat)) +
+  ggplot2::geom_sf(data = world, fill = "black", color = "black", linewidth = 0.1, inherit.aes = FALSE) +
+  ggplot2::scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  ggplot2::coord_sf(crs = robin_crs, expand = FALSE) +
+  ggplot2::facet_wrap(~ group) +
+  ggplot2::labs(
+    title = "Functional-group biomass difference: profile O2 - no oxygen limitation",
+    fill = "Difference (g m-2)"
+  ) +
+  ggplot2::theme_minimal()
+
+ggplot2::ggsave(file.path(out_dir, "map_functional_group_biomass_differences_from_saved.png"), p_group_diff, width = 12, height = 8, dpi = 300)
+p_group_diff
+```
