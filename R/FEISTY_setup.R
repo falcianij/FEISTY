@@ -1317,6 +1317,22 @@ read_vertical_o2_profile <- function(
   prof <- utils::read.csv(profile_path, stringsAsFactors = FALSE)
   prof <- prof[prof$site == site & prof$scenario == scenario, , drop = FALSE]
   if (nrow(prof) == 0) stop("No rows found for selected site/scenario in profile file.")
+  normalize_vertical_o2_profile(prof, fill_internal_gaps = fill_internal_gaps, required_cols = required_cols)
+}
+
+normalize_vertical_o2_profile <- function(
+  prof,
+  fill_internal_gaps = FALSE,
+  required_cols = c(
+    "depth_idx", "depth_mid_m", "depth_top_m", "depth_bot_m", "dz_m",
+    "temp_C", "pO2_kPa", "zmeso", "zmicro", "I_day_rel", "I_night_rel"
+  )
+) {
+  missing_cols <- setdiff(required_cols, names(prof))
+  if (length(missing_cols) > 0) {
+    stop("Profile is missing required columns: ", paste(missing_cols, collapse = ", "))
+  }
+
   ord_col <- if ("depth_idx" %in% names(prof)) "depth_idx" else "depth_mid_m"
   prof <- prof[order(prof[[ord_col]]), , drop = FALSE]
   valid <- stats::complete.cases(prof[, required_cols, drop = FALSE])
@@ -1367,7 +1383,11 @@ setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/prof
   Q10_D = 2, Q10_S = 1.5, delta_pO2_ref = 2, w_ref_O2 = 1, use_oxygen = TRUE,
   K_L = 0.1, h_L = 1, L_min = 0.5, L_max = 1.5, light_bottom_to_one = TRUE,
   resource_input_units = "molN_m3", input_to_gN = 14.0, N_to_C = 5.625, C_to_wet = 10, ...) {
-  if (is.null(profile)) profile <- read_vertical_o2_profile(profile_path, site, scenario, fill_internal_gaps)
+  if (is.null(profile)) {
+    profile <- read_vertical_o2_profile(profile_path, site, scenario, fill_internal_gaps)
+  } else {
+    profile <- normalize_vertical_o2_profile(profile, fill_internal_gaps = fill_internal_gaps)
+  }
   z_mid <- profile$depth_mid_m; z_top <- profile$depth_top_m; z_bot <- profile$depth_bot_m; dz <- profile$dz_m; Z <- nrow(profile)
   depth <- max(z_bot); bottom <- depth
   if (is.null(photic)) {euphotic <- profile$I_day_rel >= I_eu; photic <- if (any(euphotic)) max(z_bot[euphotic]) else min(z_bot)}
