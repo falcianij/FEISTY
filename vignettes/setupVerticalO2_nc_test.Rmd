@@ -90,6 +90,35 @@ profile_nc <- data.frame(
   stringsAsFactors = FALSE
 )
 
+# Ensure profile rows are ordered shallow->deep and have finite required fields,
+# matching assumptions made by read_vertical_o2_profile(...).
+profile_nc <- profile_nc[order(profile_nc$depth_mid_m), ]
+row.names(profile_nc) <- NULL
+
+required_cols <- c(
+  "depth_mid_m", "depth_top_m", "depth_bot_m", "dz_m",
+  "temp_C", "pO2_kPa", "zmeso", "zmicro", "I_day_rel", "I_night_rel"
+)
+
+bad_rows <- !stats::complete.cases(profile_nc[, required_cols])
+if (any(bad_rows)) {
+  stop("NetCDF coordinate profile has missing required values at rows: ",
+       paste(which(bad_rows), collapse = ", "))
+}
+
+if (any(profile_nc$dz_m <= 0)) {
+  stop("Non-positive layer thickness detected in dz_m.")
+}
+
+if (any(diff(profile_nc$depth_mid_m) < 0)) {
+  stop("Depth midpoints are not monotonic increasing.")
+}
+
+if (any(profile_nc$I_day_rel < -1e-6 | profile_nc$I_day_rel > 1 + 1e-6,
+        profile_nc$I_night_rel < -1e-6 | profile_nc$I_night_rel > 1 + 1e-6)) {
+  stop("Light scalars outside expected [0,1] range.")
+}
+
 str(profile_nc)
 head(profile_nc)
 summary(profile_nc$dz_m)
@@ -136,6 +165,11 @@ p <- setupVerticalO2(
   L_max = 1.5,
   light_bottom_to_one = TRUE
 )
+
+# Compare to profile_path path behavior: setupVerticalO2() only reads from
+# profile_path when profile is NULL.
+cat("nrow(profile_nc):", nrow(profile_nc), "\n")
+cat("depth range:", min(profile_nc$depth_mid_m), "to", max(profile_nc$depth_mid_m), "m\n")
 
 p$setup
 dim(p$depthDay)
