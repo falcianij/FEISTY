@@ -1,0 +1,164 @@
+---
+title: "Testing `setupVerticalO2()` from a Single NetCDF Coordinate"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Testing setupVerticalO2 from NetCDF coordinate}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 8, fig.height = 5)
+```
+
+## Purpose
+
+This test vignette is a runnable workflow for validating that a **single profile can be read directly from the NetCDF source** and then passed into `setupVerticalO2()`.
+
+Default coordinate is the same CCE location used in the CSV workflow:
+
+- longitude (180 convention): `-123`
+- latitude: `34`
+
+## Load FEISTY functions and configure NetCDF input
+
+```{r setup-local}
+# Load FEISTY functions locally through devtools.
+devtools::load_all(path = here::here())
+
+nc_hist_path <- here::here("data/profiles_hist_last10y.nc")
+stopifnot(file.exists(nc_hist_path))
+
+# Default coordinate matches the CCE row used in CSV-based tests.
+site_name <- "CCE"
+lon180_requested <- -123
+lat_requested <- 34
+scenario <- "hist"
+```
+
+## Read a single coordinate profile from NetCDF
+
+```{r profile-from-nc}
+stopifnot(requireNamespace("ncdf4", quietly = TRUE))
+
+nc <- ncdf4::nc_open(nc_hist_path)
+on.exit(ncdf4::nc_close(nc), add = TRUE)
+
+lon <- as.numeric(ncdf4::ncvar_get(nc, "lon"))
+lat <- as.numeric(ncdf4::ncvar_get(nc, "lat"))
+lev <- as.numeric(ncdf4::ncvar_get(nc, "lev"))
+
+lon360_requested <- ifelse(lon180_requested < 0, lon180_requested + 360, lon180_requested)
+ix <- which.min(abs(lon - lon360_requested))
+iy <- which.min(abs(lat - lat_requested))
+
+lon360_grid <- lon[ix]
+lon180_grid <- ifelse(lon360_grid > 180, lon360_grid - 360, lon360_grid)
+lat_grid <- lat[iy]
+
+cat("Requested (lon180, lat):", lon180_requested, lat_requested, "\n")
+cat("Selected  (lon180, lat):", lon180_grid, lat_grid, "\n")
+cat("Grid indices (ix, iy):", ix, iy, "\n")
+
+temp_C <- as.numeric(read_var_lon_lat_lev(nc, "T_mean", length(lon), length(lat), length(lev))[ix, iy, ])
+pO2_kPa <- as.numeric(read_var_lon_lat_lev(nc, "pO2_mean", length(lon), length(lat), length(lev))[ix, iy, ])
+zmeso <- as.numeric(read_var_lon_lat_lev(nc, "zmeso_mean", length(lon), length(lat), length(lev))[ix, iy, ])
+zmicro <- as.numeric(read_var_lon_lat_lev(nc, "zmicro_mean", length(lon), length(lat), length(lev))[ix, iy, ])
+I_day_rel <- as.numeric(read_var_lon_lat_lev(nc, "I_day", length(lon), length(lat), length(lev))[ix, iy, ])
+I_night_rel <- as.numeric(read_var_lon_lat_lev(nc, "I_night", length(lon), length(lat), length(lev))[ix, iy, ])
+
+bnds <- layer_bounds_from_midpoints(lev)
+profile_nc <- data.frame(
+  site = site_name,
+  lon180_requested = lon180_requested,
+  lat_requested = lat_requested,
+  lon360_grid = lon360_grid,
+  lon180_grid = lon180_grid,
+  lat_grid = lat_grid,
+  depth_idx = seq_along(lev),
+  depth_mid_m = lev,
+  depth_top_m = bnds$top_m,
+  depth_bot_m = bnds$bot_m,
+  dz_m = bnds$dz_m,
+  scenario = scenario,
+  temp_C = temp_C,
+  pO2_kPa = pO2_kPa,
+  zmeso = zmeso,
+  zmicro = zmicro,
+  I_day_rel = I_day_rel,
+  I_night_rel = I_night_rel,
+  stringsAsFactors = FALSE
+)
+
+# Normalize with the same trimming/interpolation logic used by
+# read_vertical_o2_profile(...), so profile= and profile_path= behave alike.
+profile_nc <- normalize_vertical_o2_profile(
+  profile_nc,
+  fill_internal_gaps = FALSE
+)
+
+str(profile_nc)
+head(profile_nc)
+summary(profile_nc$dz_m)
+```
+
+## Plot vertical forcing profiles
+
+```{r forcing-profiles, fig.height=8}
+op <- par(mfrow = c(2, 3), mar = c(4, 4, 2, 1))
+plot(profile_nc$temp_C, profile_nc$depth_mid_m, type = "l", lwd = 2,
+     xlab = "Temperature (C)", ylab = "Depth (m)", main = "Temperature",
+     ylim = rev(range(profile_nc$depth_mid_m)))
+plot(profile_nc$pO2_kPa, profile_nc$depth_mid_m, type = "l", lwd = 2,
+     xlab = "pO2 (kPa)", ylab = "Depth (m)", main = "Oxygen",
+     ylim = rev(range(profile_nc$depth_mid_m)))
+plot(profile_nc$zmicro, profile_nc$depth_mid_m, type = "l", lwd = 2,
+     xlab = "zmicro", ylab = "Depth (m)", main = "Microzoo",
+     ylim = rev(range(profile_nc$depth_mid_m)))
+plot(profile_nc$zmeso, profile_nc$depth_mid_m, type = "l", lwd = 2,
+     xlab = "zmeso", ylab = "Depth (m)", main = "Mesozoo",
+     ylim = rev(range(profile_nc$depth_mid_m)))
+plot(profile_nc$I_day_rel, profile_nc$depth_mid_m, type = "l", lwd = 2,
+     xlab = "I_day_rel", ylab = "Depth (m)", main = "Light (day)",
+     ylim = rev(range(profile_nc$depth_mid_m)))
+plot(profile_nc$I_night_rel, profile_nc$depth_mid_m, type = "l", lwd = 2,
+     xlab = "I_night_rel", ylab = "Depth (m)", main = "Light (night)",
+     ylim = rev(range(profile_nc$depth_mid_m)))
+par(op)
+```
+
+## Build `setupVerticalO2()` from NetCDF-derived profile object
+
+```{r build-setup}
+p <- setupVerticalO2(
+  profile = profile_nc,
+  nStages = 9,
+  K_O = 2,
+  h_O = 1,
+  delta_pO2_ref = 2,
+  Q10_D = 2,
+  Q10_S = 1.5,
+  K_L = 0.1,
+  L_min = 0.5,
+  L_max = 1.5,
+  light_bottom_to_one = TRUE
+)
+
+# Compare to profile_path path behavior: setupVerticalO2() only reads from
+# profile_path when profile is NULL.
+cat("nrow(profile_nc):", nrow(profile_nc), "\n")
+cat("depth range:", min(profile_nc$depth_mid_m), "to", max(profile_nc$depth_mid_m), "m\n")
+
+p$setup
+dim(p$depthDay)
+dim(p$depthNight)
+range(p$glvl)
+range(p$phiLightDay)
+range(p$phiLightNight)
+```
+
+## Run and inspect a short simulation
+
+```{r run-sim}
+sim <- simulateFEISTY(p = p, tEnd = 50, USEdll = FALSE)
+```

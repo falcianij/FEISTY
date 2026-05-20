@@ -348,7 +348,7 @@ plotNetwork <- function(sim, manual_scale_b=TRUE, ref_b = 50) {
     p$bottom <- -(min(Av_depth)) + 1
   }  
   
-  if (p$setup == "setupVertical" | p$setup == "setupVertical2"){
+  if (p$setup == "setupVertical" | p$setup == "setupVertical2" | p$setup == "setupVerticalO2"){
     
     #Calculate average depth day/night
     
@@ -1153,4 +1153,3 @@ plot.FEISTY = function(sim) {
 #   
 #   return(plots)
 # }
-

@@ -41,6 +41,7 @@
 #' \itemize{
 #' \item deriv: a vector of derivatives [g/m2/year] of all resources and all functional type size classes.
 #' \item f: a vector containing feeding levels [-] of all resources (0) and all size classes of functional types.
+#' \item glvl: a vector containing oxygen limitation levels [-] of all size classes of functional types. Resources not included.
 #' \item mortpred: a vector containing predation mortality rate [1/year] of all resources and all size classes of functional types.
 #' \item g: Net growth rate (the fraction of available energy invested in growth) [1/year]. It includes all size classes of functional types. Resources not included.
 #' \item Repro: Energy used for reproduction of all size classes of functional types [g/m2/year]. Resources not included.
@@ -48,7 +49,7 @@
 #' \item Fout: Biomass flux out of each size class [g/m2/year]. Resources not included.
 #' \item totMort: a vector containing total mortality [g/m2/year] of each functional type, 
 #' which includes predation mortality, background mortality, and fishing mortality.
-#' \item totGrazing: a vector containing total grazing (food intake before assimilation) [g/m2/year] of each functional type. Cmax * f * u (maximum consumption rate * feeding level * biomass).
+#' \item totGrazing: a vector containing total grazing (food intake before assimilation) [g/m2/year] of each functional type. glvl * Cmax * f * u (oxygen limitation * maximum consumption rate * feeding level * biomass).
 #' \item totLoss: a vector containing total biomass loss [g/m2/year] of each functional type, including unassimilated food, basal metabolism and reproduction cost (1-epsRepro). 
 #' The reproduction cost here also include the energy loss (1-epsRepro) from the flux out of the last size class (invested in reproduction) of each functional type.
 #' These losses are supposed to be released to environments.
@@ -140,6 +141,8 @@ derivativesFEISTYR = function(t,              # current time
   
   # split state variable vector into resource and fish
   u[u<0]=0
+  if (is.null(p$glvl)) p$glvl <- rep(1, length(u))
+  glvl <- rep(p$glvl, length.out = length(u))
   R     = u[p$ixR]       # resource, prey
   iFish = p$ixFish
   B     = u[iFish]       # fish
@@ -162,7 +165,7 @@ derivativesFEISTYR = function(t,              # current time
   # = t(p$theta) %*% (f*p$Cmax/p$epsAssim*u/p$mc)
   # ----------------------------------------------
   #
-  mm = p$Cmax*p$V/(Enc+p$Cmax)*u # temporarily store
+  mm = glvl*p$Cmax*p$V/(Enc+p$Cmax)*u # temporarily store; glvl limits predator ingestion capacity
   mm[ is.na(mm) ] = 0
   mortpred = t(p$theta) %*% mm  
   
@@ -195,7 +198,7 @@ derivativesFEISTYR = function(t,              # current time
   f[is.na(f)] = 0
   
   # net growth rate, /yr
-  Eavail  = p$epsAssim * p$Cmax * f - p$metabolism
+  Eavail  = p$epsAssim * glvl * p$Cmax * f - p$metabolism
 
   # ----------------------------------------------
   # Total mortality (includes basal and fishing mortality)
@@ -266,6 +269,7 @@ derivativesFEISTYR = function(t,              # current time
     out = list()
     out$deriv = c(dRdt, dBdt)
     out$f     = f[-p$ixR,] # Feeding level only all fish stages, no resources
+    out$glvl  = glvl[-p$ixR] # Oxygen limitation level only all fish stages, no resources
     out$mortpred = mortpred[,]
     out$g     = g # net growth rate fish stages
     out$Repro = Repro
@@ -273,7 +277,7 @@ derivativesFEISTYR = function(t,              # current time
     out$Fout  = Fout
     
     # for the budget:
-    grazing = p$Cmax * f         # grazing rate, /yr
+    grazing = glvl * p$Cmax * f  # oxygen-scaled grazing rate, /yr
     loss    = (1.-p$epsAssim) * grazing + p$metabolism # Energy loss to environments. Updated below.
     Reprofrac = (1-kappa)*vplus
     
@@ -316,7 +320,7 @@ derivativesFEISTYR = function(t,              # current time
 #' 
 #' @usage simulateFEISTY (p = setupBasic(), 
 #'                        tEnd = 500, tStep  = 1, times = seq(from=0, to=tEnd, by=tStep), 
-#'                        yini = p$u0, USEdll = TRUE, Rmodel = derivativesFEISTYR, 
+#'                        yini = p$u0, USEdll = FALSE, Rmodel = derivativesFEISTYR,
 #'                        bCust = TRUE)
 #'
 #' @param p A complete parameter list. \cr 
@@ -330,11 +334,11 @@ derivativesFEISTYR = function(t,              # current time
 #'             If input the whole output list of a simulation (e.g., \code{yini=sim}), the biomass values of all state variables of the last time step (\code{yini=sim$u[sim$nTime,]}) will be applied to the initial values.
 #'             It can be used for successive simulations based on previous simulations. 
 #' @param USEdll Logical flag, determining whether the ODEs are solved in FORTRAN (`TRUE`) or R (`FALSE`). \cr
-#' The \link{deSolve} package is required for both methods. Default is TRUE, \code{USEdll=FALSE} is useful in debugging or model development.
+#' The \link{deSolve} package is required for both methods. Default is FALSE so simulations run through the R solver without requiring compiled Fortran; use \code{USEdll=TRUE} only after compiling the package.
 #' `bCust` flag input is ineffective when \code{USEdll=FALSE}.
 #' @param Rmodel The R function for computing derivatives, defaults to \code{\link{derivativesFEISTYR}}. Generally, it should not be changed, unless users modify the model profoundly.
 #' @param bCust Logical flag, indicates whether to use fixed setups (FALSE) or customized setups (TRUE). \cr 
-#' Default is TRUE, which means the core FEISTY parameters generated in R are transmitted to Fortran, and the ode solving is also done by compiled language. 
+#' Default is TRUE, but it only matters when \code{USEdll=TRUE}. If TRUE with \code{USEdll=TRUE}, the core FEISTY parameters generated in R are transmitted to Fortran, and ODE solving is done by compiled language.
 #' \code{bCust=FALSE} is useful in debugging and model development, e,g., comparing R and FORTRAN results.
 #' \code{bCust} flag has a lower priority than \code{USEdll} flag. \code{bCust} flag input is ineffective when \code{USEdll} flag is FALSE.
 #' 
@@ -365,6 +369,7 @@ derivativesFEISTYR = function(t,              # current time
 #' \item USEdll: from parameter input.
 #' \item p: the parameter list used in the simulation, the same as the input one.
 #' \item f: a matrix containing feeding levels [-] of all size classes of functional types over each time point. Resources not included.
+#' \item glvl: a matrix containing oxygen limitation levels [-] of all size classes of functional types over each time point. Resources not included.
 #' \item mortpred: a matrix containing a vector containing predation mortality rate [1/year] of all resources and all size classes of functional types over each time point. Resources not included.
 #' \item g: a matrix containing the net growth rate [1/year] of all size classes of functional types over each time point. Resources not included.
 #' \item Repro: a matrix containing the energy used for reproduction of all size classes of functional types over each time point, rate [g/m2/year]. Resources not included.
@@ -373,7 +378,7 @@ derivativesFEISTYR = function(t,              # current time
 #' \item totMort: a matrix containing the total mortality [g/m2/year] of each functional type over each time point, 
 #' which includes predation mortality, background mortality, and fishing mortality.
 #' \item totGrazing: a matrix containing the total grazing (food intake before assimilation) [g/m2/year] of each functional type over each time point.
-#' Cmax * f * u (maximum consumption rate * feeding level * biomass).
+#' glvl * Cmax * f * u (oxygen limitation * maximum consumption rate * feeding level * biomass).
 #' \item totLoss: a matrix containing all biomass loss [g/m2/year] of each functional type over each time point, including unassimilated food, basal metabolism and reproduction cost (1-epsRepro). 
 #' The reproduction cost here also include the energy loss (1-epsRepro) from the flux out of the last size class (invested in reproduction) of each functional type. 
 #' These losses are supposed to be released to environments.
@@ -513,7 +518,7 @@ simulateFEISTY = function(p      = setupBasic(),
                           tStep  = 1,
                           times  = seq(from=0, to=tEnd, by=tStep),  
                           yini   = p$u0,  
-                          USEdll = TRUE,
+                          USEdll = FALSE,
                           Rmodel = derivativesFEISTYR,
                           bCust  = TRUE)
 {
@@ -526,6 +531,9 @@ simulateFEISTY = function(p      = setupBasic(),
   # if bTS is not defined, the simulation is non-ts simulation
   if (is.null(p$bTS)) p$bTS = FALSE  
   if (is.null(p$tSpin)) p$tSpin = NA  
+  if (is.null(p$glvl)) p$glvl <- rep(1, nGrid)
+  if (length(p$glvl) != nGrid)
+    stop("length of 'glvl' not ok - should be ", nGrid)
     
   if (length(yini) != nGrid) 
     stop ("length of 'yini' not ok - should be ", nGrid)  
@@ -543,8 +551,8 @@ simulateFEISTY = function(p      = setupBasic(),
   Fname <- p$stagenames[-(1:nR)]
   Gname <- p$groupnames[-(1:nR)]
   outnames <- c(
-    paste("f", Fname, sep="."), paste("mortpred", Sname, sep="."),
-    paste("g", Fname, sep="."), paste("Repro", Fname, sep="."),
+    paste("f", Fname, sep="."), paste("glvl", Fname, sep="."), paste("mortpred", Sname, sep="."), paste("g", Fname, sep="."),
+    paste("Repro", Fname, sep="."),
     paste("Fin", Fname, sep="."), paste("Fout", Fname, sep="."),
     paste("totMort", Gname, sep="."), paste("totGrazing", Gname, sep="."),
     paste("totLoss", Gname, sep="."), paste("totRepro", Gname, sep="."),
@@ -641,6 +649,7 @@ simulateFEISTY = function(p      = setupBasic(),
     if (any(dim(p$theta)-c(nGrid, nGrid) != 0))
       stop ("dimension of 'theta' not ok: should be (", nGrid, ",", nGrid, ")")  
     
+    if (is.null(p$glvl)) p$glvl <- rep(1, nGrid)
     # the double precision numbers to be passed to the fortran code
     rpar   <- c(rep(p$K,  length.out=nR),            # resource parameters
                 rep(p$r,  length.out=nR),  
@@ -654,6 +663,7 @@ simulateFEISTY = function(p      = setupBasic(),
                 rep(p$metabolism, length.out=nGrid),
                 rep(p$mort0,      length.out=nGrid),
                 rep(p$mortF,      length.out=nGrid),
+                rep(p$glvl,       length.out=nGrid),
                 rep(p$Vsave,          length.out=nGrid), 
                 rep(p$Cmaxsave,       length.out=nGrid),
                 rep(p$metabolismsave, length.out=nGrid),
@@ -839,13 +849,16 @@ simulateFEISTY = function(p      = setupBasic(),
   
   # feeding level
   # "^xx" extracting data starts with "xx"
-  col_f=grep("^f.", colnames(u), value = TRUE)
+  col_f=grep("^f\\.", colnames(u), value = TRUE)
   sim$f=u[,col_f]  
+  # oxygen limitation level
+  col_glvl=grep("^glvl\\.", colnames(u), value = TRUE)
+  sim$glvl=u[,col_glvl]
   # predation mortality rate
   col_mortpred=grep("^mortpred", colnames(u), value = TRUE)
   sim$mortpred=u[,col_mortpred]
   # net growth rate
-  col_g=grep("^g.", colnames(u), value = TRUE)
+  col_g=grep("^g\\.", colnames(u), value = TRUE)
   sim$g=u[,col_g]
   # Energy used for reproduction [g/m2/year]
   col_Repro=grep("^Repro", colnames(u), value = TRUE)

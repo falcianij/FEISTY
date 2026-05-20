@@ -6,7 +6,7 @@
 \usage{
 simulateFEISTY (p = setupBasic(), 
                        tEnd = 500, tStep  = 1, times = seq(from=0, to=tEnd, by=tStep), 
-                       yini = p$u0, USEdll = TRUE, Rmodel = derivativesFEISTYR, 
+                       yini = p$u0, USEdll = FALSE, Rmodel = derivativesFEISTYR,
                        bCust = TRUE)
 }
 \arguments{
@@ -26,13 +26,13 @@ If input the whole output list of a simulation (e.g., \code{yini=sim}), the biom
 It can be used for successive simulations based on previous simulations.}
 
 \item{USEdll}{Logical flag, determining whether the ODEs are solved in FORTRAN (`TRUE`) or R (`FALSE`). \cr
-The \link{deSolve} package is required for both methods. Default is TRUE, \code{USEdll=FALSE} is useful in debugging or model development.
+The \link{deSolve} package is required for both methods. Default is FALSE so simulations run through the R solver without requiring compiled Fortran; use \code{USEdll=TRUE} only after compiling the package.
 `bCust` flag input is ineffective when \code{USEdll=FALSE}.}
 
 \item{Rmodel}{The R function for computing derivatives, defaults to \code{\link{derivativesFEISTYR}}. Generally, it should not be changed, unless users modify the model profoundly.}
 
 \item{bCust}{Logical flag, indicates whether to use fixed setups (FALSE) or customized setups (TRUE). \cr 
-Default is TRUE, which means the core FEISTY parameters generated in R are transmitted to Fortran, and the ode solving is also done by compiled language. 
+Default is TRUE, but it only matters when \code{USEdll=TRUE}. If TRUE with \code{USEdll=TRUE}, the core FEISTY parameters generated in R are transmitted to Fortran, and ODE solving is done by compiled language.
 \code{bCust=FALSE} is useful in debugging and model development, e,g., comparing R and FORTRAN results.
 \code{bCust} flag has a lower priority than \code{USEdll} flag. \code{bCust} flag input is ineffective when \code{USEdll} flag is FALSE.}
 }
@@ -47,6 +47,7 @@ A list containing the simulation results:
 \item USEdll: from parameter input.
 \item p: the parameter list used in the simulation, the same as the input one.
 \item f: a matrix containing feeding levels [-] of all size classes of functional types over each time point. Resources not included.
+\item glvl: a matrix containing oxygen limitation levels [-] of all size classes of functional types over each time point. Resources not included.
 \item mortpred: a matrix containing a vector containing predation mortality rate [1/year] of all resources and all size classes of functional types over each time point. Resources not included.
 \item g: a matrix containing the net growth rate [1/year] of all size classes of functional types over each time point. Resources not included.
 \item Repro: a matrix containing the energy used for reproduction of all size classes of functional types over each time point, rate [g/m2/year]. Resources not included.
@@ -55,7 +56,7 @@ A list containing the simulation results:
 \item totMort: a matrix containing the total mortality [g/m2/year] of each functional type over each time point, 
 which includes predation mortality, background mortality, and fishing mortality.
 \item totGrazing: a matrix containing the total grazing (food intake before assimilation) [g/m2/year] of each functional type over each time point.
-Cmax * f * u (maximum consumption rate * feeding level * biomass).
+glvl * Cmax * f * u (oxygen limitation * maximum consumption rate * feeding level * biomass).
 \item totLoss: a matrix containing all biomass loss [g/m2/year] of each functional type over each time point, including unassimilated food, basal metabolism and reproduction cost (1-epsRepro). 
 The reproduction cost here also include the energy loss (1-epsRepro) from the flux out of the last size class (invested in reproduction) of each functional type. 
 These losses are supposed to be released to environments.

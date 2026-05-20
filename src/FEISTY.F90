@@ -218,6 +218,7 @@
       call getVec(metabolism,  rpar, ir, nGrid)
       call getVec(mort0,       rpar, ir, nGrid)
       call getVec(mortF,       rpar, ir, nGrid)
+      call getVec(glvl,        rpar, ir, nGrid)
 
      ! resource vectors to be calculated in R-code
 
@@ -266,6 +267,8 @@
 
       if (allocated (flvl))  deallocate (flvl)
       allocate (flvl(nGrid))
+      if (allocated (glvl))  deallocate (glvl)
+      allocate (glvl(nGrid))
 
       if (allocated (Enc))  deallocate (Enc)
       allocate (Enc(nGrid))
@@ -431,7 +434,7 @@ if(bET .eqv. .TRUE. .and. depthET .lt. 200) call updateET(u)
 ! Mortality for resources and fish grids:
 ! ----------------------------------------------
 
-      mortpred = Cmax*V/(Enc + Cmax)*u
+      mortpred = glvl*Cmax*V/(Enc + Cmax)*u
       call checknan(mortpred, nGrid)
 
       mortpred = matmul(transpose(theta), mortpred)      ! Predation mortality [/yr]
@@ -476,9 +479,9 @@ end if
       !flvl = (V * (matmul((theta*dr_fac_theta), u))) /(Cmax + Enc)                           ! food limitation     [-]
       call checknan(flvl, nGrid)                        ! remove Nans
 
-      Eavail  = epsAssim_vec*flvl*Cmax - metabolism         ! available energy    [/yr]
+      Eavail  = epsAssim_vec*glvl*flvl*Cmax - metabolism         ! available energy    [/yr]
 
-      grazing = Cmax * flvl*u                           ! grazing             [gWW/m2/yr]
+      grazing = glvl*Cmax * flvl*u                           ! grazing             [gWW/m2/yr]
 
       loss    = (1._dp-epsAssim_vec)*grazing + metabolism*u  ! Energy loss to environments  [gWW/m2/yr] Updated below.
 
@@ -797,6 +800,10 @@ end if
     ir = 1
     do i = 1, nFGrid
      yout(ir) = flvl(nResources+i)
+     ir = ir + 1
+    end do
+    do i = 1, nFGrid
+     yout(ir) = glvl(nResources+i)
      ir = ir + 1
     end do
     do i = 1, nGrid
