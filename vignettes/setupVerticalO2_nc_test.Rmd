@@ -335,7 +335,7 @@ combined_profiles <- (force_panel | fish_p1 | fish_p2 | fish_p3) +
 
 # single bottom x label for fish profiles group
 depth_plot <- (fish_p1 | fish_p2 | fish_p3) +
-  patchwork::plot_layout(guides = "collect") +
+  patchwork::plot_layout(ncol = 3, guides = "collect") +
   patchwork::plot_annotation(caption = "")
 
 combined_profiles
@@ -363,11 +363,13 @@ network_no_o2 <- plotNetwork(sim_no_o2, manual_scale_b = TRUE, ref_b = 50) +
   ggplot2::scale_y_continuous(breaks = c(-0.2 * p_no_o2$bottom, -0.8 * p_no_o2$bottom), labels = c("shallow", "deep")) +
   ggplot2::theme(axis.text.y = ggplot2::element_text(angle = 90, vjust = 0.5))
 
-left_profiles <- (force_panel | fish_p1 | fish_p2 | fish_p3) +
-  patchwork::plot_layout(ncol = 4, widths = c(1, 1, 1, 1), guides = "collect")
-right_networks <- (network_no_o2 / network_o2) + patchwork::plot_layout(ncol = 1, nrow = 2)
-proposal_panel <- (left_profiles | right_networks) +
-  patchwork::plot_layout(ncol = 2, widths = c(1, 1))
+left_profiles <- patchwork::wrap_plots(list(force_panel, fish_p1, fish_p2, fish_p3),
+  ncol = 4, widths = c(1, 1, 1, 1), guides = "collect"
+)
+right_networks <- patchwork::wrap_plots(list(network_no_o2, network_o2), ncol = 1, nrow = 2)
+proposal_panel <- patchwork::wrap_plots(list(left_profiles, right_networks),
+  ncol = 2, widths = c(1, 1)
+)
 proposal_panel
 ```
 ```{r proposal-save, eval=TRUE}
