@@ -150,20 +150,16 @@ head(delta_regimes)
 
 ## Plot 3-panel Robinson maps
 
-```{r map, fig.width=6.5, fig.height=7.8}
+```{r map, fig.width=6.5, fig.height=6.8}
 stopifnot(requireNamespace("sf", quietly = TRUE))
+stopifnot(requireNamespace("terra", quietly = TRUE))
 stopifnot(requireNamespace("rnaturalearth", quietly = TRUE))
 stopifnot(requireNamespace("ggplot2", quietly = TRUE))
+stopifnot(requireNamespace("patchwork", quietly = TRUE))
 
 world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
 robin_crs <- "+proj=robin +lon_0=0 +datum=WGS84 +units=m +no_defs"
-
-infer_cell_size <- function(x) {
-  ux <- sort(unique(x[is.finite(x)]))
-  if (length(ux) < 2) return(1)
-  d <- min(diff(ux), na.rm = TRUE)
-  if (!is.finite(d) || d <= 0) 1 else d
-}
+world_robin <- sf::st_transform(world, crs = sf::st_crs(robin_crs))
 
 class_cols <- c(
   "Warming" = "#C9574A",
@@ -172,36 +168,78 @@ class_cols <- c(
   "No regime change" = "#D3D694"
 )
 
-p_regimes <- ggplot2::ggplot(
-  delta_regimes,
-  ggplot2::aes(x = lon, y = lat, fill = regime_class)
-) +
-  ggplot2::geom_tile(
-    width = infer_cell_size(delta_regimes$lon),
-    height = infer_cell_size(delta_regimes$lat),
-    color = NA,
-    linewidth = 0
-  ) +
-  ggplot2::geom_sf(data = world, fill = "grey20", color = "grey20", linewidth = 0.05, inherit.aes = FALSE) +
-  ggplot2::scale_fill_manual(values = class_cols, drop = FALSE) +
-  ggplot2::coord_sf(crs = sf::st_crs(robin_crs), default_crs = sf::st_crs(4326), expand = FALSE) +
-  ggplot2::facet_wrap(~ depth_regime, ncol = 1) +
-  ggplot2::labs(fill = "Class") +
-  ggplot2::theme_minimal(base_size = 8) +
-  ggplot2::theme(
-    panel.grid = ggplot2::element_blank(),
-    axis.text = ggplot2::element_blank(),
-    axis.title = ggplot2::element_blank(),
-    strip.text = ggplot2::element_text(face = "bold"),
-    legend.position = "right",
-    legend.direction = "vertical"
+class_levels <- levels(delta_regimes$regime_class)
+delta_regimes$class_code <- as.integer(factor(delta_regimes$regime_class, levels = class_levels))
+
+lon_vals <- sort(unique(delta_regimes$lon))
+lat_vals <- sort(unique(delta_regimes$lat))
+
+dlon <- min(diff(lon_vals))
+dlat <- min(diff(lat_vals))
+
+make_projected_raster_df <- function(dat_regime) {
+  r <- terra::rast(
+    ncols = length(lon_vals),
+    nrows = length(lat_vals),
+    xmin = min(lon_vals) - dlon / 2,
+    xmax = max(lon_vals) + dlon / 2,
+    ymin = min(lat_vals) - dlat / 2,
+    ymax = max(lat_vals) + dlat / 2,
+    crs = "EPSG:4326"
   )
+
+  vals <- rep(NA_real_, terra::ncell(r))
+  col_ix <- match(dat_regime$lon, lon_vals)
+  row_ix <- match(dat_regime$lat, lat_vals)
+  cell_ix <- terra::cellFromRowCol(r, row = length(lat_vals) - row_ix + 1, col = col_ix)
+  vals[cell_ix] <- dat_regime$class_code
+  terra::values(r) <- vals
+
+  r_robin <- terra::project(r, robin_crs, method = "near")
+  df <- as.data.frame(r_robin, xy = TRUE, na.rm = FALSE)
+  names(df)[3] <- "class_code"
+  df$regime_class <- factor(class_levels[df$class_code], levels = class_levels)
+  df
+}
+
+plot_regime <- function(regime_label) {
+  dat <- subset(delta_regimes, depth_regime == regime_label)
+  df_r <- make_projected_raster_df(dat)
+
+  ggplot2::ggplot(df_r, ggplot2::aes(x = x, y = y, fill = regime_class)) +
+    ggplot2::geom_raster(interpolate = FALSE) +
+    ggplot2::geom_sf(data = world_robin, fill = "grey20", color = "grey20", linewidth = 0.05, inherit.aes = FALSE) +
+    ggplot2::scale_fill_manual(values = class_cols, drop = FALSE) +
+    ggplot2::coord_sf(crs = sf::st_crs(robin_crs), expand = FALSE) +
+    ggplot2::labs(title = regime_label, fill = "Class") +
+    ggplot2::theme_minimal(base_size = 8) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      axis.text = ggplot2::element_blank(),
+      axis.title = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+      legend.position = "bottom",
+      legend.direction = "horizontal"
+    )
+}
+
+p_surface <- plot_regime("Surface")
+p_midwater <- plot_regime("Midwater")
+p_bottom <- plot_regime("Bottom")
+
+p_regimes <- (
+  p_surface + p_midwater
+) / (
+  patchwork::plot_spacer() + p_bottom + patchwork::plot_spacer()
+) +
+  patchwork::plot_layout(guides = "collect") &
+  ggplot2::theme(legend.position = "bottom", legend.direction = "horizontal")
 
 plot_file_png <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.png")
 plot_file_pdf <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.pdf")
 
-ggplot2::ggsave(plot_file_png, p_regimes, width = 6.5, height = 7.8, dpi = 300)
-ggplot2::ggsave(plot_file_pdf, p_regimes, width = 6.5, height = 7.8, device = grDevices::cairo_pdf)
+ggplot2::ggsave(plot_file_png, p_regimes, width = 6.5, height = 6.8, dpi = 300)
+ggplot2::ggsave(plot_file_pdf, p_regimes, width = 6.5, height = 6.8, device = grDevices::cairo_pdf)
 
 p_regimes
 ```
