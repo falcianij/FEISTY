@@ -23,11 +23,14 @@ Build **three global maps** (surface, midwater, bottom) from historical and proj
    - `No regime change`
 3. plotting in **Robinson projection** with total panel width 6.5".
 
-## User controls
+## Load FEISTY functions and configure NetCDF inputs
 
-```{r controls}
+```{r setup-local}
+# Load FEISTY functions locally through devtools (same pattern as other setupVerticalO2 NetCDF vignettes).
+devtools::load_all(path = here::here())
+
 nc_hist_path <- here::here("data", "profiles_hist_last10y.nc")
-nc_proj_path <- here::here("data", "profiles_proj_last10y.nc")
+nc_proj_path <- here::here("data", "profiles_ssp585_last10y.nc")
 out_dir <- here::here("outputs", "temp_o2_regime_maps")
 
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
@@ -48,7 +51,6 @@ stopifnot(file.exists(nc_hist_path), file.exists(nc_proj_path))
 ```{r read-nc}
 stopifnot(requireNamespace("ncdf4", quietly = TRUE))
 stopifnot(requireNamespace("dplyr", quietly = TRUE))
-stopifnot(requireNamespace("FEISTY", quietly = TRUE))
 
 nc_h <- ncdf4::nc_open(nc_hist_path)
 on.exit(ncdf4::nc_close(nc_h), add = TRUE)
@@ -65,14 +67,10 @@ lev_p <- as.numeric(ncdf4::ncvar_get(nc_p, "lev"))
 
 stopifnot(identical(lon_h, lon_p), identical(lat_h, lat_p), identical(lev_h, lev_p))
 
-# `read_var_lon_lat_lev` is an internal FEISTY helper used by related
-# setupVerticalO2 NetCDF workflows.
-read_var_fun <- getFromNamespace("read_var_lon_lat_lev", "FEISTY")
-
-T_hist <- read_var_fun(nc_h, "T_mean", length(lon_h), length(lat_h), length(lev_h))
-T_proj <- read_var_fun(nc_p, "T_mean", length(lon_h), length(lat_h), length(lev_h))
-O_hist <- read_var_fun(nc_h, "pO2_mean", length(lon_h), length(lat_h), length(lev_h))
-O_proj <- read_var_fun(nc_p, "pO2_mean", length(lon_h), length(lat_h), length(lev_h))
+T_hist <- read_var_lon_lat_lev(nc_h, "T_mean", length(lon_h), length(lat_h), length(lev_h))
+T_proj <- read_var_lon_lat_lev(nc_p, "T_mean", length(lon_h), length(lat_h), length(lev_h))
+O_hist <- read_var_lon_lat_lev(nc_h, "pO2_mean", length(lon_h), length(lat_h), length(lev_h))
+O_proj <- read_var_lon_lat_lev(nc_p, "pO2_mean", length(lon_h), length(lat_h), length(lev_h))
 
 dT <- T_proj - T_hist
 dO <- O_proj - O_hist
