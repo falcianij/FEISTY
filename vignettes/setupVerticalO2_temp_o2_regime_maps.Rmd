@@ -162,10 +162,10 @@ infer_cell_size <- function(x) {
 }
 
 class_cols <- c(
-  "Warming" = "#E69F00",
-  "Deoxygenation" = "#56B4E9",
+  "Warming" = "#C9574A",
+  "Deoxygenation" = "#674776",
   "Warming & Deoxygenation" = "#CC79A7",
-  "No regime change" = "#D9D9D9"
+  "No regime change" = "#D3D694"
 )
 
 p_regimes <- ggplot2::ggplot(
@@ -197,8 +197,11 @@ p_regimes <- ggplot2::ggplot(
     legend.position = "bottom"
   )
 
-plot_file <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.png")
-ggplot2::ggsave(plot_file, p_regimes, width = 6.5, height = 2.8, dpi = 300)
+plot_file_png <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.png")
+plot_file_pdf <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.pdf")
+
+ggplot2::ggsave(plot_file_png, p_regimes, width = 6.5, height = 2.8, dpi = 300)
+ggplot2::ggsave(plot_file_pdf, p_regimes, width = 6.5, height = 2.8, device = grDevices::cairo_pdf)
 
 p_regimes
 ```
