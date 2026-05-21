@@ -86,6 +86,16 @@ For very large workflows, avoid repeated NetCDF conversion by caching the
 profile table once (`.rds`) and reusing it in subsequent runs.
 
 ```{r load-profiles}
+location_key <- function(df) {
+  paste(
+    as.character(df$site),
+    as.character(df$scenario),
+    sprintf("%.6f", as.numeric(df$lon180_grid)),
+    sprintf("%.6f", as.numeric(df$lat_grid)),
+    sep = "::"
+  )
+}
+
 if (isTRUE(use_cached_profiles) && !isTRUE(rebuild_profiles_cache) && file.exists(profiles_cache_rds)) {
   message("Loading cached profiles from: ", profiles_cache_rds)
   cached_obj <- readRDS(profiles_cache_rds)
@@ -97,7 +107,7 @@ if (isTRUE(use_cached_profiles) && !isTRUE(rebuild_profiles_cache) && file.exist
     stop("Unrecognized cache format in: ", profiles_cache_rds)
   }
 
-  n_cached <- length(unique(paste(profile_all$site, profile_all$scenario, sep = "::")))
+  n_cached <- length(unique(location_key(profile_all)))
   too_small_for_request <- !is.null(run_first_n_locations) && (n_cached < run_first_n_locations)
   suspicious_for_full_run <- is.null(run_first_n_locations) && (n_cached <= 100)
   if (isTRUE(auto_rebuild_if_cache_too_small) && (too_small_for_request || suspicious_for_full_run)) {
@@ -122,7 +132,7 @@ if (!isTRUE(use_cached_profiles) || isTRUE(rebuild_profiles_cache) || !file.exis
   saveRDS(
     list(
       profile_all = profile_all,
-      n_locations = length(unique(paste(profile_all$site, profile_all$scenario, sep = "::"))),
+      n_locations = length(unique(location_key(profile_all))),
       created_utc = as.character(Sys.time())
     ),
     profiles_cache_rds,
@@ -138,17 +148,17 @@ if (!isTRUE(use_cached_profiles) || isTRUE(rebuild_profiles_cache) || !file.exis
 }
 
 if (!is.null(run_first_n_locations)) {
-  keep_keys <- unique(paste(profile_all$site, profile_all$scenario, sep = "::"))
+  keep_keys <- unique(location_key(profile_all))
   keep_keys <- head(keep_keys, run_first_n_locations)
-  profile_all <- profile_all[paste(profile_all$site, profile_all$scenario, sep = "::") %in% keep_keys, , drop = FALSE]
+  profile_all <- profile_all[location_key(profile_all) %in% keep_keys, , drop = FALSE]
 }
 
 message(
   "Locations available after optional subsetting: ",
-  length(unique(paste(profile_all$site, profile_all$scenario, sep = "::")))
+  length(unique(location_key(profile_all)))
 )
 
-profile_all$key <- paste(profile_all$site, profile_all$scenario, sep = "::")
+profile_all$key <- location_key(profile_all)
 profile_list <- split(profile_all, profile_all$key)
 
 data.frame(
@@ -325,6 +335,11 @@ if (!all(ok)) {
   )
   utils::write.csv(fail_tbl, file.path(out_dir, "failed_locations.csv"), row.names = FALSE)
   message("Failed locations: ", nrow(fail_tbl), ". See ", file.path(out_dir, "failed_locations.csv"), " (check error column for failing step).")
+
+  fail_rate <- nrow(fail_tbl) / length(results)
+  if (fail_rate > 0.05) {
+    stop(sprintf("%.1f%% of locations failed (%d/%d). Aborting to avoid silently writing incomplete maps. Inspect failed_locations.csv.", 100 * fail_rate, nrow(fail_tbl), length(results)))
+  }
 }
 
 results_ok <- results[ok]
