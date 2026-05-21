@@ -209,7 +209,7 @@ plot_regime <- function(regime_label) {
   ggplot2::ggplot(df_r, ggplot2::aes(x = x, y = y, fill = regime_class)) +
     ggplot2::geom_raster(interpolate = FALSE) +
     ggplot2::geom_sf(data = world_robin, fill = "black", color = "black", linewidth = 0.05, inherit.aes = FALSE) +
-    ggplot2::scale_fill_manual(values = class_cols, drop = FALSE) +
+    ggplot2::scale_fill_manual(values = class_cols, drop = FALSE, na.value = "white") +
     ggplot2::coord_sf(crs = sf::st_crs(robin_crs), expand = FALSE) +
     ggplot2::labs(title = regime_label, fill = "Class") +
     ggplot2::theme_minimal(base_size = 8) +
@@ -217,6 +217,7 @@ plot_regime <- function(regime_label) {
       panel.grid = ggplot2::element_blank(),
       panel.background = ggplot2::element_rect(fill = "white", colour = NA),
       plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+      panel.border = ggplot2::element_rect(colour = "grey50", fill = NA, linewidth = 0.4),
       axis.text = ggplot2::element_blank(),
       axis.title = ggplot2::element_blank(),
       plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
