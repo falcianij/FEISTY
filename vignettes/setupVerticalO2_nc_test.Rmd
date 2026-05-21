@@ -329,7 +329,7 @@ fish_p2 <- mk_species_panel(species_order[2])
 fish_p3 <- mk_species_panel(species_order[3])
 
 combined_profiles <- (force_panel | fish_p1 | fish_p2 | fish_p3) +
-  patchwork::plot_layout(widths = c(1, 1, 1, 1), guides = "collect") +
+  patchwork::plot_layout(ncol = 4, widths = c(1, 1, 1, 1), guides = "collect") +
   patchwork::plot_annotation(caption = "") &
   ggplot2::theme(plot.margin = ggplot2::margin(5.5, 5.5, 5.5, 5.5))
 
@@ -364,9 +364,10 @@ network_no_o2 <- plotNetwork(sim_no_o2, manual_scale_b = TRUE, ref_b = 50) +
   ggplot2::theme(axis.text.y = ggplot2::element_text(angle = 90, vjust = 0.5))
 
 left_profiles <- (force_panel | fish_p1 | fish_p2 | fish_p3) +
-  patchwork::plot_layout(widths = c(1, 1, 1, 1), guides = "collect")
-right_networks <- network_no_o2 / network_o2
-proposal_panel <- (left_profiles | right_networks) + patchwork::plot_layout(widths = c(1, 1))
+  patchwork::plot_layout(ncol = 4, widths = c(1, 1, 1, 1), guides = "collect")
+right_networks <- (network_no_o2 / network_o2) + patchwork::plot_layout(ncol = 1, nrow = 2)
+proposal_panel <- (left_profiles | right_networks) +
+  patchwork::plot_layout(ncol = 2, widths = c(1, 1))
 proposal_panel
 ```
 ```{r proposal-save, eval=TRUE}
