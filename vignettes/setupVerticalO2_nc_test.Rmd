@@ -220,20 +220,14 @@ unscale_from_temp <- function(x) (x - temp_rng[1]) / diff(temp_rng) * diff(o2_rn
 forcing_plot <- ggplot2::ggplot() +
   ggplot2::geom_path(data = profile_nc, ggplot2::aes(x = temp_C, y = depth_mid_m),
                      linewidth = 1.0, color = "#BA584D", na.rm = TRUE) +
-  ggplot2::geom_path(data = profile_nc, ggplot2::aes(x = rescale_to_temp(pO2_kPa), y = depth_mid_m),
+  ggplot2::geom_path(data = profile_nc, ggplot2::aes(x = pO2_kPa, y = depth_mid_m),
                      linewidth = 1.0, color = "#6a51a3", na.rm = TRUE) +
-  ggplot2::scale_x_continuous(
-    name = "Temperature (°C)",
-    sec.axis = ggplot2::sec_axis(~ unscale_from_temp(.), name = "Oxygen (kPa)")
-  ) +
+  ggplot2::scale_x_continuous(limits = c(0, 25), breaks = c(0, 5, 10, 15, 20, 25), name = NULL) +
   ggplot2::scale_y_reverse(expand = c(0.01, 0.01)) +
-  ggplot2::labs(y = "Depth (m)", title = "Forcing profiles") +
+  ggplot2::labs(y = "Depth (m)") +
   proposal_theme() +
   ggplot2::theme(
-    axis.title.x = ggplot2::element_text(color = "#BA584D"),
-    axis.text.x = ggplot2::element_text(color = "#BA584D"),
-    axis.title.x.top = ggplot2::element_text(color = "#6a51a3"),
-    axis.text.x.top = ggplot2::element_text(color = "#6a51a3"),
+    axis.title.x = ggplot2::element_blank(),
     aspect.ratio = 1.55
   )
 
@@ -292,11 +286,16 @@ y_lim <- range(z_depth, na.rm = TRUE)
 
 mk_species_panel <- function(sp) {
   ggplot2::ggplot(subset(depth_dist, species == sp), ggplot2::aes(x = probability, y = depth_mid_m, linetype = period)) +
-    ggplot2::geom_path(linewidth = 0.9, color = "grey15", na.rm = TRUE) +
+    ggplot2::geom_path(linewidth = 0.9, ggplot2::aes(color = species), na.rm = TRUE) +
     ggplot2::scale_linetype_manual(values = c("Day" = "solid", "Night" = "dashed")) +
     ggplot2::scale_y_reverse(limits = rev(y_lim), expand = c(0.01, 0.01)) +
-    ggplot2::labs(title = sp, x = NULL, y = NULL, linetype = "Period") +
+    ggplot2::labs(x = NULL, y = NULL, linetype = "Period", color = NULL) +
     proposal_theme() +
+    ggplot2::scale_color_manual(values = c(
+      "Large pelagic" = p$my_palette["largePel"],
+      "Mesopelagic" = p$my_palette["mesoPel"],
+      "Midwater predator" = p$my_palette["midwPred"]
+    )) +
     ggplot2::theme(
       aspect.ratio = 1.55,
       panel.grid.major.y = ggplot2::element_line(color = "grey88", linewidth = 0.25),
@@ -319,13 +318,13 @@ fish_p3 <- mk_species_panel(species_order[3])
 
 combined_profiles <- (force_panel | fish_p1 | fish_p2 | fish_p3) +
   patchwork::plot_layout(widths = c(1.15, 1, 1, 1), guides = "collect") +
-  patchwork::plot_annotation(title = "Forcing and fish profiles", caption = "Depth fraction") &
+  patchwork::plot_annotation(caption = "") &
   ggplot2::theme(plot.margin = ggplot2::margin(5.5, 5.5, 5.5, 5.5))
 
 # single bottom x label for fish profiles group
 depth_plot <- (fish_p1 | fish_p2 | fish_p3) +
   patchwork::plot_layout(guides = "collect") +
-  patchwork::plot_annotation(title = "Fish profiles", caption = "Depth fraction")
+  patchwork::plot_annotation(caption = "")
 
 combined_profiles
 ```
@@ -336,29 +335,28 @@ combined_profiles
 depth_plot
 ```
 
-### 3) Trophic networks: oxygen vs no oxygen
 
-```{r proposal-networks, fig.height=7.2, warning=FALSE}
+### 4) Composite proposal panel (left: profiles, right: networks)
+
+```{r proposal-composite, fig.height=5.2, warning=FALSE}
 network_o2 <- plotNetwork(sim, manual_scale_b = TRUE, ref_b = 50) +
-  ggplot2::ggtitle("With oxygen limitation") +
   proposal_theme(base_size = 9) +
   ggplot2::theme(panel.grid.major.y = ggplot2::element_blank(), legend.position = "none") +
   ggplot2::scale_y_continuous(breaks = c(-0.2 * p$bottom, -0.8 * p$bottom), labels = c("shallow", "deep")) +
   ggplot2::theme(axis.text.y = ggplot2::element_text(angle = 90, vjust = 0.5))
 
 network_no_o2 <- plotNetwork(sim_no_o2, manual_scale_b = TRUE, ref_b = 50) +
-  ggplot2::ggtitle("Without oxygen limitation") +
   proposal_theme(base_size = 9) +
   ggplot2::theme(panel.grid.major.y = ggplot2::element_blank(), legend.position = "none") +
   ggplot2::scale_y_continuous(breaks = c(-0.2 * p_no_o2$bottom, -0.8 * p_no_o2$bottom), labels = c("shallow", "deep")) +
   ggplot2::theme(axis.text.y = ggplot2::element_text(angle = 90, vjust = 0.5))
 
-network_pair <- network_o2 / network_no_o2 + patchwork::plot_layout(guides = "collect")
-network_pair
+left_profiles <- (force_panel | fish_p1 | fish_p2 | fish_p3) +
+  patchwork::plot_layout(widths = c(1, 1, 1, 1), guides = "collect")
+right_networks <- network_no_o2 / network_o2
+proposal_panel <- left_profiles | right_networks + patchwork::plot_layout(widths = c(1, 1))
+proposal_panel
 ```
-
-### 4) Save proposal-ready outputs (6.5" wide)
-
 ```{r proposal-save, eval=TRUE}
 out_dir <- here::here("outputs", "proposal_figures")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
@@ -372,6 +370,9 @@ ggplot2::ggsave(file.path(out_dir, "cce_forcing_plus_fish_profiles.png"), combin
 ggplot2::ggsave(file.path(out_dir, "cce_largest_stage_day_night_depth_profiles.png"), depth_plot,
                 width = 6.5, height = 9.4, dpi = 300)
 
-ggplot2::ggsave(file.path(out_dir, "cce_trophic_network_o2_vs_no_o2.png"), network_pair,
+ggplot2::ggsave(file.path(out_dir, "cce_trophic_network_o2_vs_no_o2.png"), right_networks,
                 width = 6.5, height = 10.0, dpi = 300)
+
+ggplot2::ggsave(file.path(out_dir, "cce_profiles_and_networks_composite.png"), proposal_panel,
+                width = 6.5, height = 5.2, dpi = 300)
 ```
