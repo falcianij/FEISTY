@@ -132,7 +132,7 @@ par(op)
 ```{r build-setup}
 p <- setupVerticalO2(
   profile = profile_nc,
-  nStages = 9,
+  nStages = 6,
   K_O = 2,
   h_O = 1,
   delta_pO2_ref = 2,
@@ -189,7 +189,7 @@ proposal_theme <- function(base_size = 9) {
 # Build the no-oxygen setup/simulation with the same CCE profile
 p_no_o2 <- setupVerticalO2(
   profile = profile_nc,
-  nStages = 9,
+  nStages = 6,
   use_oxygen = FALSE,
   K_O = 2,
   h_O = 1,
@@ -225,7 +225,7 @@ forcing_plot <- ggplot2::ggplot() +
   ggplot2::scale_x_continuous(
     limits = c(0, 25),
     breaks = seq(0, 25, by = 5),
-    labels = function(x) ifelse(x %% 10 == 0, as.character(x), ""),
+    labels = c("0", "", "10", "", "20", ""),
     name = NULL
   ) +
   ggplot2::scale_y_reverse(expand = c(0.01, 0.01)) +
@@ -294,8 +294,8 @@ mk_species_panel <- function(sp) {
     ggplot2::geom_path(linewidth = 0.9, ggplot2::aes(color = species), na.rm = TRUE) +
     ggplot2::scale_linetype_manual(values = c("Day" = "solid", "Night" = "dashed")) +
     ggplot2::scale_x_continuous(
-      breaks = seq(0, 1, by = 0.05),
-      labels = function(x) ifelse(abs((x / 0.25) - round(x / 0.25)) < 1e-8, format(x, trim = TRUE), "")
+      breaks = seq(0, 1, by = 0.1),
+      labels = function(x) ifelse(abs((x / 0.2) - round(x / 0.2)) < 1e-8, format(round(x, 1), trim = TRUE), "")
     ) +
     ggplot2::scale_y_reverse(limits = rev(y_lim), expand = c(0.01, 0.01)) +
     ggplot2::labs(x = NULL, y = NULL, linetype = "Period", color = NULL) +
@@ -333,10 +333,6 @@ force_panel <- ggplot2::ggplot() +
     labels = function(x) ifelse(x %% 10 == 0, as.character(x), ""),
     name = NULL
   ) +
-  ggplot2::scale_x_continuous(
-      breaks = seq(0, 1, by = 0.05),
-      labels = function(x) ifelse(abs((x / 0.25) - round(x / 0.25)) < 1e-8, format(x, trim = TRUE), "")
-    ) +
     ggplot2::scale_y_reverse(limits = rev(y_lim), expand = c(0.01, 0.01)) +
   ggplot2::labs(y = "Depth (m)", x = NULL) +
   proposal_theme() +
