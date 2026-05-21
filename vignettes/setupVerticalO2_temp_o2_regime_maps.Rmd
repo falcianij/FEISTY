@@ -1,0 +1,201 @@
+---
+title: "Temperature + Oxygen Regime Maps from NetCDF Forcing"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Temperature and oxygen regime maps from NetCDF forcing}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6.5, fig.height = 2.6)
+```
+
+## Purpose
+
+Build **three global maps** (surface, midwater, bottom) from historical and projected NetCDF forcing files by:
+
+1. averaging projected minus historical **temperature** and **oxygen** differences within each depth regime,
+2. classifying each grid cell as:
+   - `Warming`
+   - `Deoxygenation`
+   - `Warming & Deoxygenation`
+   - `No regime change`
+3. plotting in **Robinson projection** with total panel width 6.5".
+
+## User controls
+
+```{r controls}
+nc_hist_path <- here::here("data", "profiles_hist_last10y.nc")
+nc_proj_path <- here::here("data", "profiles_proj_last10y.nc")
+out_dir <- here::here("outputs", "temp_o2_regime_maps")
+
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Depth breaks in meters.
+surface_max_m <- 200
+midwater_max_m <- 1000
+
+# Thresholds for classification.
+warming_threshold_C <- 0.5
+deoxygenation_threshold_kPa <- -0.25
+
+stopifnot(file.exists(nc_hist_path), file.exists(nc_proj_path))
+```
+
+## Read NetCDF and align variables
+
+```{r read-nc}
+stopifnot(requireNamespace("ncdf4", quietly = TRUE))
+stopifnot(requireNamespace("dplyr", quietly = TRUE))
+
+nc_h <- ncdf4::nc_open(nc_hist_path)
+on.exit(ncdf4::nc_close(nc_h), add = TRUE)
+nc_p <- ncdf4::nc_open(nc_proj_path)
+on.exit(ncdf4::nc_close(nc_p), add = TRUE)
+
+lon_h <- as.numeric(ncdf4::ncvar_get(nc_h, "lon"))
+lat_h <- as.numeric(ncdf4::ncvar_get(nc_h, "lat"))
+lev_h <- as.numeric(ncdf4::ncvar_get(nc_h, "lev"))
+
+lon_p <- as.numeric(ncdf4::ncvar_get(nc_p, "lon"))
+lat_p <- as.numeric(ncdf4::ncvar_get(nc_p, "lat"))
+lev_p <- as.numeric(ncdf4::ncvar_get(nc_p, "lev"))
+
+stopifnot(identical(lon_h, lon_p), identical(lat_h, lat_p), identical(lev_h, lev_p))
+
+T_hist <- read_var_lon_lat_lev(nc_h, "T_mean", length(lon_h), length(lat_h), length(lev_h))
+T_proj <- read_var_lon_lat_lev(nc_p, "T_mean", length(lon_h), length(lat_h), length(lev_h))
+O_hist <- read_var_lon_lat_lev(nc_h, "pO2_mean", length(lon_h), length(lat_h), length(lev_h))
+O_proj <- read_var_lon_lat_lev(nc_p, "pO2_mean", length(lon_h), length(lat_h), length(lev_h))
+
+dT <- T_proj - T_hist
+dO <- O_proj - O_hist
+
+lon180 <- ifelse(lon_h > 180, lon_h - 360, lon_h)
+```
+
+## Build depth regimes and summarize mean deltas
+
+```{r summarize-by-regime}
+regime_from_depth <- function(depth_m, depth_vec) {
+  deepest_mid <- max(depth_vec[is.finite(depth_vec)])
+
+  if (!is.finite(depth_m)) return(NA_character_)
+  if (depth_m >= deepest_mid) return("bottom")
+  if (depth_m <= surface_max_m) return("surface")
+  if (depth_m <= midwater_max_m) return("midwater")
+  "bottom"
+}
+
+regime_levels <- c("surface", "midwater", "bottom")
+
+cells <- expand.grid(
+  ix = seq_along(lon_h),
+  iy = seq_along(lat_h),
+  iz = seq_along(lev_h),
+  KEEP.OUT.ATTRS = FALSE
+)
+
+cells$lon <- lon180[cells$ix]
+cells$lat <- lat_h[cells$iy]
+cells$depth_mid_m <- lev_h[cells$iz]
+cells$depth_regime <- vapply(cells$depth_mid_m, regime_from_depth, character(1), depth_vec = lev_h)
+cells$dT <- as.numeric(dT[cbind(cells$ix, cells$iy, cells$iz)])
+cells$dO <- as.numeric(dO[cbind(cells$ix, cells$iy, cells$iz)])
+
+cells <- cells[is.finite(cells$dT) & is.finite(cells$dO), , drop = FALSE]
+
+delta_regimes <- cells |>
+  dplyr::group_by(depth_regime, lon, lat) |>
+  dplyr::summarise(
+    delta_temp_C = mean(dT, na.rm = TRUE),
+    delta_o2_kPa = mean(dO, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+delta_regimes$depth_regime <- factor(delta_regimes$depth_regime, levels = regime_levels)
+```
+
+## Classify regime change
+
+```{r classify}
+delta_regimes$regime_class <- with(
+  delta_regimes,
+  ifelse(
+    delta_temp_C >= warming_threshold_C & delta_o2_kPa <= deoxygenation_threshold_kPa,
+    "Warming & Deoxygenation",
+    ifelse(
+      delta_temp_C >= warming_threshold_C,
+      "Warming",
+      ifelse(delta_o2_kPa <= deoxygenation_threshold_kPa, "Deoxygenation", "No regime change")
+    )
+  )
+)
+
+delta_regimes$regime_class <- factor(
+  delta_regimes$regime_class,
+  levels = c("Warming", "Deoxygenation", "Warming & Deoxygenation", "No regime change")
+)
+
+head(delta_regimes)
+```
+
+## Plot 3-panel Robinson maps
+
+```{r map, fig.width=6.5, fig.height=2.8}
+stopifnot(requireNamespace("sf", quietly = TRUE))
+stopifnot(requireNamespace("rnaturalearth", quietly = TRUE))
+stopifnot(requireNamespace("ggplot2", quietly = TRUE))
+
+world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+robin_crs <- "+proj=robin +lon_0=0 +datum=WGS84 +units=m +no_defs"
+
+infer_cell_size <- function(x) {
+  ux <- sort(unique(x[is.finite(x)]))
+  if (length(ux) < 2) return(1)
+  d <- min(diff(ux), na.rm = TRUE)
+  if (!is.finite(d) || d <= 0) 1 else d
+}
+
+class_cols <- c(
+  "Warming" = "#E69F00",
+  "Deoxygenation" = "#56B4E9",
+  "Warming & Deoxygenation" = "#CC79A7",
+  "No regime change" = "#D9D9D9"
+)
+
+p_regimes <- ggplot2::ggplot(
+  delta_regimes,
+  ggplot2::aes(x = lon, y = lat, fill = regime_class)
+) +
+  ggplot2::geom_tile(
+    width = infer_cell_size(delta_regimes$lon),
+    height = infer_cell_size(delta_regimes$lat)
+  ) +
+  ggplot2::geom_sf(data = world, fill = "grey20", color = "grey20", linewidth = 0.05, inherit.aes = FALSE) +
+  ggplot2::scale_fill_manual(values = class_cols, drop = FALSE) +
+  ggplot2::coord_sf(crs = sf::st_crs(robin_crs), default_crs = sf::st_crs(4326), expand = FALSE) +
+  ggplot2::facet_wrap(~ depth_regime, nrow = 1) +
+  ggplot2::labs(
+    title = "Projected - Historical temperature & oxygen regime change",
+    subtitle = sprintf(
+      "Thresholds: ΔT ≥ %.2f °C, ΔO2 ≤ %.2f kPa",
+      warming_threshold_C, deoxygenation_threshold_kPa
+    ),
+    fill = "Class"
+  ) +
+  ggplot2::theme_minimal(base_size = 8) +
+  ggplot2::theme(
+    panel.grid = ggplot2::element_blank(),
+    axis.text = ggplot2::element_blank(),
+    axis.title = ggplot2::element_blank(),
+    strip.text = ggplot2::element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+plot_file <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.png")
+ggplot2::ggsave(plot_file, p_regimes, width = 6.5, height = 2.8, dpi = 300)
+
+p_regimes
+```
