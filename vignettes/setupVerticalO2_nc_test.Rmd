@@ -292,10 +292,10 @@ mk_species_panel <- function(sp) {
     ggplot2::labs(x = NULL, y = NULL, linetype = "Period", color = NULL) +
     proposal_theme() +
     ggplot2::scale_color_manual(values = c(
-      "Large pelagic" = p$my_palette["largePel"],
-      "Mesopelagic" = p$my_palette["mesoPel"],
-      "Midwater predator" = p$my_palette["midwPred"]
-    )) +
+      "Large pelagic" = unname(p$my_palette["largePel"]),
+      "Mesopelagic" = unname(p$my_palette["mesoPel"]),
+      "Midwater predator" = unname(p$my_palette["midwPred"])
+    ), drop = FALSE) +
     ggplot2::theme(
       aspect.ratio = 1.55,
       panel.grid.major.y = ggplot2::element_line(color = "grey88", linewidth = 0.25),
@@ -307,17 +307,29 @@ mk_species_panel <- function(sp) {
     )
 }
 
-force_panel <- forcing_plot +
+forcing_aligned <- data.frame(
+  depth_mid_m = z_depth,
+  temp_C = stats::approx(x = profile_nc$depth_mid_m, y = profile_nc$temp_C, xout = z_depth, rule = 2)$y,
+  pO2_kPa = stats::approx(x = profile_nc$depth_mid_m, y = profile_nc$pO2_kPa, xout = z_depth, rule = 2)$y
+)
+
+force_panel <- ggplot2::ggplot() +
+  ggplot2::geom_path(data = forcing_aligned, ggplot2::aes(x = temp_C, y = depth_mid_m),
+                     linewidth = 1.0, color = "#BA584D", na.rm = TRUE) +
+  ggplot2::geom_path(data = forcing_aligned, ggplot2::aes(x = pO2_kPa, y = depth_mid_m),
+                     linewidth = 1.0, color = "#6a51a3", na.rm = TRUE) +
+  ggplot2::scale_x_continuous(limits = c(0, 25), breaks = c(0, 5, 10, 15, 20, 25), name = NULL) +
   ggplot2::scale_y_reverse(limits = rev(y_lim), expand = c(0.01, 0.01)) +
   ggplot2::labs(y = "Depth (m)", x = NULL) +
-  ggplot2::theme(legend.position = "none")
+  proposal_theme() +
+  ggplot2::theme(axis.title.x = ggplot2::element_blank(), aspect.ratio = 1.55, legend.position = "none")
 
 fish_p1 <- mk_species_panel(species_order[1])
 fish_p2 <- mk_species_panel(species_order[2])
 fish_p3 <- mk_species_panel(species_order[3])
 
 combined_profiles <- (force_panel | fish_p1 | fish_p2 | fish_p3) +
-  patchwork::plot_layout(widths = c(1.15, 1, 1, 1), guides = "collect") +
+  patchwork::plot_layout(widths = c(1, 1, 1, 1), guides = "collect") +
   patchwork::plot_annotation(caption = "") &
   ggplot2::theme(plot.margin = ggplot2::margin(5.5, 5.5, 5.5, 5.5))
 
@@ -354,7 +366,7 @@ network_no_o2 <- plotNetwork(sim_no_o2, manual_scale_b = TRUE, ref_b = 50) +
 left_profiles <- (force_panel | fish_p1 | fish_p2 | fish_p3) +
   patchwork::plot_layout(widths = c(1, 1, 1, 1), guides = "collect")
 right_networks <- network_no_o2 / network_o2
-proposal_panel <- left_profiles | right_networks + patchwork::plot_layout(widths = c(1, 1))
+proposal_panel <- (left_profiles | right_networks) + patchwork::plot_layout(widths = c(1, 1))
 proposal_panel
 ```
 ```{r proposal-save, eval=TRUE}
