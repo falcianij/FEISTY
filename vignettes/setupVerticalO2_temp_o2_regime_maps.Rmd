@@ -117,7 +117,11 @@ delta_regimes <- cells |>
     .groups = "drop"
   )
 
-delta_regimes$depth_regime <- factor(delta_regimes$depth_regime, levels = regime_levels)
+delta_regimes$depth_regime <- factor(
+  delta_regimes$depth_regime,
+  levels = regime_levels,
+  labels = c("Surface", "Midwater", "Bottom")
+)
 ```
 
 ## Classify regime change
@@ -146,7 +150,7 @@ head(delta_regimes)
 
 ## Plot 3-panel Robinson maps
 
-```{r map, fig.width=6.5, fig.height=2.8}
+```{r map, fig.width=6.5, fig.height=7.8}
 stopifnot(requireNamespace("sf", quietly = TRUE))
 stopifnot(requireNamespace("rnaturalearth", quietly = TRUE))
 stopifnot(requireNamespace("ggplot2", quietly = TRUE))
@@ -174,34 +178,30 @@ p_regimes <- ggplot2::ggplot(
 ) +
   ggplot2::geom_tile(
     width = infer_cell_size(delta_regimes$lon),
-    height = infer_cell_size(delta_regimes$lat)
+    height = infer_cell_size(delta_regimes$lat),
+    color = NA,
+    linewidth = 0
   ) +
   ggplot2::geom_sf(data = world, fill = "grey20", color = "grey20", linewidth = 0.05, inherit.aes = FALSE) +
   ggplot2::scale_fill_manual(values = class_cols, drop = FALSE) +
   ggplot2::coord_sf(crs = sf::st_crs(robin_crs), default_crs = sf::st_crs(4326), expand = FALSE) +
-  ggplot2::facet_wrap(~ depth_regime, nrow = 1) +
-  ggplot2::labs(
-    title = "Projected - Historical temperature & oxygen regime change",
-    subtitle = sprintf(
-      "Thresholds: ΔT ≥ %.2f °C, ΔO2 ≤ %.2f kPa",
-      warming_threshold_C, deoxygenation_threshold_kPa
-    ),
-    fill = "Class"
-  ) +
+  ggplot2::facet_wrap(~ depth_regime, ncol = 1) +
+  ggplot2::labs(fill = "Class") +
   ggplot2::theme_minimal(base_size = 8) +
   ggplot2::theme(
     panel.grid = ggplot2::element_blank(),
     axis.text = ggplot2::element_blank(),
     axis.title = ggplot2::element_blank(),
     strip.text = ggplot2::element_text(face = "bold"),
-    legend.position = "bottom"
+    legend.position = "right",
+    legend.direction = "vertical"
   )
 
 plot_file_png <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.png")
 plot_file_pdf <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.pdf")
 
-ggplot2::ggsave(plot_file_png, p_regimes, width = 6.5, height = 2.8, dpi = 300)
-ggplot2::ggsave(plot_file_pdf, p_regimes, width = 6.5, height = 2.8, device = grDevices::cairo_pdf)
+ggplot2::ggsave(plot_file_png, p_regimes, width = 6.5, height = 7.8, dpi = 300)
+ggplot2::ggsave(plot_file_pdf, p_regimes, width = 6.5, height = 7.8, device = grDevices::cairo_pdf)
 
 p_regimes
 ```
