@@ -150,7 +150,7 @@ head(delta_regimes)
 
 ## Plot 3-panel Robinson maps
 
-```{r map, fig.width=6.5, fig.height=6.8}
+```{r map, fig.width=6.5, fig.height=7.8}
 stopifnot(requireNamespace("sf", quietly = TRUE))
 stopifnot(requireNamespace("terra", quietly = TRUE))
 stopifnot(requireNamespace("rnaturalearth", quietly = TRUE))
@@ -164,8 +164,8 @@ world_robin <- sf::st_transform(world, crs = sf::st_crs(robin_crs))
 class_cols <- c(
   "Warming" = "#C9574A",
   "Deoxygenation" = "#674776",
-  "Warming & Deoxygenation" = "#CC79A7",
-  "No regime change" = "#D3D694"
+  "Warming & Deoxygenation" = "#D3D694",
+  "No regime change" = "gray90"
 )
 
 class_levels <- levels(delta_regimes$regime_class)
@@ -208,13 +208,15 @@ plot_regime <- function(regime_label) {
 
   ggplot2::ggplot(df_r, ggplot2::aes(x = x, y = y, fill = regime_class)) +
     ggplot2::geom_raster(interpolate = FALSE) +
-    ggplot2::geom_sf(data = world_robin, fill = "grey20", color = "grey20", linewidth = 0.05, inherit.aes = FALSE) +
+    ggplot2::geom_sf(data = world_robin, fill = "black", color = "black", linewidth = 0.05, inherit.aes = FALSE) +
     ggplot2::scale_fill_manual(values = class_cols, drop = FALSE) +
     ggplot2::coord_sf(crs = sf::st_crs(robin_crs), expand = FALSE) +
     ggplot2::labs(title = regime_label, fill = "Class") +
     ggplot2::theme_minimal(base_size = 8) +
     ggplot2::theme(
       panel.grid = ggplot2::element_blank(),
+      panel.background = ggplot2::element_rect(fill = "white", colour = NA),
+      plot.background = ggplot2::element_rect(fill = "white", colour = NA),
       axis.text = ggplot2::element_blank(),
       axis.title = ggplot2::element_blank(),
       plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
@@ -228,18 +230,19 @@ p_midwater <- plot_regime("Midwater")
 p_bottom <- plot_regime("Bottom")
 
 p_regimes <- (
-  p_surface + p_midwater
-) / (
-  patchwork::plot_spacer() + p_bottom + patchwork::plot_spacer()
+  p_surface / p_midwater / p_bottom
 ) +
   patchwork::plot_layout(guides = "collect") &
-  ggplot2::theme(legend.position = "bottom", legend.direction = "horizontal")
+  ggplot2::theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal"
+  )
 
 plot_file_png <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.png")
 plot_file_pdf <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.pdf")
 
-ggplot2::ggsave(plot_file_png, p_regimes, width = 6.5, height = 6.8, dpi = 300)
-ggplot2::ggsave(plot_file_pdf, p_regimes, width = 6.5, height = 6.8, device = grDevices::cairo_pdf)
+ggplot2::ggsave(plot_file_png, p_regimes, width = 6.5, height = 7.8, dpi = 300)
+ggplot2::ggsave(plot_file_pdf, p_regimes, width = 6.5, height = 7.8, device = grDevices::cairo_pdf)
 
 p_regimes
 ```
