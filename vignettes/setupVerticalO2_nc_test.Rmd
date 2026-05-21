@@ -222,13 +222,18 @@ forcing_plot <- ggplot2::ggplot() +
                      linewidth = 1.0, color = "#BA584D", na.rm = TRUE) +
   ggplot2::geom_path(data = profile_nc, ggplot2::aes(x = pO2_kPa, y = depth_mid_m),
                      linewidth = 1.0, color = "#6a51a3", na.rm = TRUE) +
-  ggplot2::scale_x_continuous(limits = c(0, 25), breaks = c(0, 5, 10, 15, 20, 25), name = NULL) +
+  ggplot2::scale_x_continuous(
+    limits = c(0, 25),
+    breaks = seq(0, 25, by = 5),
+    labels = function(x) ifelse(x %% 10 == 0, as.character(x), ""),
+    name = NULL
+  ) +
   ggplot2::scale_y_reverse(expand = c(0.01, 0.01)) +
   ggplot2::labs(y = "Depth (m)") +
   proposal_theme() +
   ggplot2::theme(
     axis.title.x = ggplot2::element_blank(),
-    aspect.ratio = 2.9
+    aspect.ratio = 3.8
   )
 
 forcing_plot
@@ -288,7 +293,10 @@ mk_species_panel <- function(sp) {
   ggplot2::ggplot(subset(depth_dist, species == sp), ggplot2::aes(x = probability, y = depth_mid_m, linetype = period)) +
     ggplot2::geom_path(linewidth = 0.9, ggplot2::aes(color = species), na.rm = TRUE) +
     ggplot2::scale_linetype_manual(values = c("Day" = "solid", "Night" = "dashed")) +
-    ggplot2::scale_x_continuous(breaks = c(0, 0.5, 1.0), labels = c("0", "0.5", "1")) +
+    ggplot2::scale_x_continuous(
+      breaks = seq(0, 1, by = 0.05),
+      labels = function(x) ifelse(abs((x / 0.25) - round(x / 0.25)) < 1e-8, format(x, trim = TRUE), "")
+    ) +
     ggplot2::scale_y_reverse(limits = rev(y_lim), expand = c(0.01, 0.01)) +
     ggplot2::labs(x = NULL, y = NULL, linetype = "Period", color = NULL) +
     proposal_theme() +
@@ -298,7 +306,7 @@ mk_species_panel <- function(sp) {
       "Midwater predator" = unname(p$my_palette["midwPred"])
     ), drop = FALSE) +
     ggplot2::theme(
-      aspect.ratio = 2.9,
+      aspect.ratio = 3.8,
       panel.grid.major.y = ggplot2::element_line(color = "grey88", linewidth = 0.25),
       panel.grid.major.x = ggplot2::element_line(color = "grey90", linewidth = 0.2),
       legend.position = "none",
@@ -319,12 +327,20 @@ force_panel <- ggplot2::ggplot() +
                      linewidth = 1.0, color = "#BA584D", na.rm = TRUE) +
   ggplot2::geom_path(data = forcing_aligned, ggplot2::aes(x = pO2_kPa, y = depth_mid_m),
                      linewidth = 1.0, color = "#6a51a3", na.rm = TRUE) +
-  ggplot2::scale_x_continuous(limits = c(0, 25), breaks = c(0, 5, 10, 15, 20, 25), name = NULL) +
-  ggplot2::scale_x_continuous(breaks = c(0, 0.5, 1.0), labels = c("0", "0.5", "1")) +
+  ggplot2::scale_x_continuous(
+    limits = c(0, 25),
+    breaks = seq(0, 25, by = 5),
+    labels = function(x) ifelse(x %% 10 == 0, as.character(x), ""),
+    name = NULL
+  ) +
+  ggplot2::scale_x_continuous(
+      breaks = seq(0, 1, by = 0.05),
+      labels = function(x) ifelse(abs((x / 0.25) - round(x / 0.25)) < 1e-8, format(x, trim = TRUE), "")
+    ) +
     ggplot2::scale_y_reverse(limits = rev(y_lim), expand = c(0.01, 0.01)) +
   ggplot2::labs(y = "Depth (m)", x = NULL) +
   proposal_theme() +
-  ggplot2::theme(axis.title.x = ggplot2::element_blank(), aspect.ratio = 2.9, legend.position = "none")
+  ggplot2::theme(axis.title.x = ggplot2::element_blank(), aspect.ratio = 3.8, legend.position = "none")
 
 fish_p1 <- mk_species_panel(species_order[1])
 fish_p2 <- mk_species_panel(species_order[2])
@@ -352,7 +368,9 @@ depth_plot
 
 ### 4) Composite proposal panel (left: profiles, right: networks)
 
-```{r proposal-composite, fig.height=9.2, warning=FALSE}
+<!-- Manual tuning knobs: edit fig.height in this chunk and aspect.ratio in force_panel/mk_species_panel themes below. Keep width=6.5 in proposal-save. -->
+
+```{r proposal-composite, fig.height=11.0, warning=FALSE}
 network_o2 <- plotNetwork(sim, manual_scale_b = TRUE, ref_b = 50) +
   proposal_theme(base_size = 9) +
   ggplot2::theme(panel.grid.major.y = ggplot2::element_blank(), legend.position = "none") +
@@ -391,5 +409,5 @@ ggplot2::ggsave(file.path(out_dir, "cce_trophic_network_o2_vs_no_o2.png"), right
                 width = 6.5, height = 10.0, dpi = 300)
 
 ggplot2::ggsave(file.path(out_dir, "cce_profiles_and_networks_composite.png"), proposal_panel,
-                width = 6.5, height = 9.2, dpi = 300)
+                width = 6.5, height = 11.0, dpi = 300)
 ```
