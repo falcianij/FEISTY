@@ -161,6 +161,27 @@ world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
 robin_crs <- "+proj=robin +lon_0=0 +datum=WGS84 +units=m +no_defs"
 world_robin <- sf::st_transform(world, crs = sf::st_crs(robin_crs))
 
+
+# Build a map-frame polygon from the geographic domain boundary and project
+# it to Robinson so the border follows the projection edge (not a rectangle).
+make_robinson_frame <- function() {
+  lons <- seq(-180, 180, by = 1)
+  lats <- seq(-90, 90, by = 1)
+
+  ring <- rbind(
+    cbind(lons, rep(-90, length(lons))),
+    cbind(rep(180, length(lats) - 1), lats[-1]),
+    cbind(rev(lons[-length(lons)]), rep(90, length(lons) - 1)),
+    cbind(rep(-180, length(lats) - 1), rev(lats[-length(lats)])),
+    matrix(c(-180, -90), ncol = 2)
+  )
+
+  frame_ll <- sf::st_sfc(sf::st_polygon(list(ring)), crs = 4326)
+  sf::st_transform(frame_ll, crs = sf::st_crs(robin_crs))
+}
+
+robin_frame <- make_robinson_frame()
+
 class_cols <- c(
   "Warming" = "#C9574A",
   "Deoxygenation" = "#674776",
@@ -209,6 +230,7 @@ plot_regime <- function(regime_label) {
   ggplot2::ggplot(df_r, ggplot2::aes(x = x, y = y, fill = regime_class)) +
     ggplot2::geom_raster(interpolate = FALSE) +
     ggplot2::geom_sf(data = world_robin, fill = "black", color = "black", linewidth = 0.05, inherit.aes = FALSE) +
+    ggplot2::geom_sf(data = robin_frame, fill = NA, color = "grey50", linewidth = 0.4, inherit.aes = FALSE) +
     ggplot2::scale_fill_manual(values = class_cols, drop = FALSE, na.value = "white") +
     ggplot2::coord_sf(crs = sf::st_crs(robin_crs), expand = FALSE) +
     ggplot2::labs(title = regime_label, fill = "Class") +
@@ -217,7 +239,6 @@ plot_regime <- function(regime_label) {
       panel.grid = ggplot2::element_blank(),
       panel.background = ggplot2::element_rect(fill = "white", colour = NA),
       plot.background = ggplot2::element_rect(fill = "white", colour = NA),
-      panel.border = ggplot2::element_rect(colour = "grey50", fill = NA, linewidth = 0.4),
       axis.text = ggplot2::element_blank(),
       axis.title = ggplot2::element_blank(),
       plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
