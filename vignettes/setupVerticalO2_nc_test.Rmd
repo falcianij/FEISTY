@@ -162,3 +162,138 @@ range(p$phiLightNight)
 ```{r run-sim}
 sim <- simulateFEISTY(p = p, tEnd = 50, USEdll = FALSE)
 ```
+
+## Proposal figure set: oxygen vs no-oxygen (CCE)
+
+```{r proposal-setup, message=FALSE, warning=FALSE}
+stopifnot(requireNamespace("ggplot2", quietly = TRUE))
+stopifnot(requireNamespace("dplyr", quietly = TRUE))
+stopifnot(requireNamespace("tidyr", quietly = TRUE))
+stopifnot(requireNamespace("patchwork", quietly = TRUE))
+
+proposal_theme <- function(base_size = 9) {
+  ggplot2::theme_minimal(base_size = base_size) +
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank(),
+      panel.border = ggplot2::element_rect(colour = "grey50", fill = NA, linewidth = 0.4),
+      axis.ticks = ggplot2::element_line(colour = "grey50"),
+      axis.text = ggplot2::element_text(size = 7, colour = "grey20"),
+      axis.title = ggplot2::element_text(size = 8),
+      legend.position = "bottom",
+      legend.title = ggplot2::element_text(size = 8),
+      legend.text = ggplot2::element_text(size = 7),
+      plot.title = ggplot2::element_text(size = 9, face = "bold")
+    )
+}
+
+# Build the no-oxygen setup/simulation with the same CCE profile
+p_no_o2 <- setupVerticalO2(
+  profile = profile_nc,
+  nStages = 9,
+  use_oxygen = FALSE,
+  K_O = 2,
+  h_O = 1,
+  delta_pO2_ref = 2,
+  Q10_D = 2,
+  Q10_S = 1.5,
+  K_L = 0.1,
+  L_min = 0.5,
+  L_max = 1.5,
+  light_bottom_to_one = TRUE
+)
+sim_no_o2 <- simulateFEISTY(p = p_no_o2, tEnd = 50, USEdll = FALSE)
+```
+
+### 1) Combined temperature + oxygen profile
+
+```{r proposal-forcing-profile, fig.height=4.8}
+forcing_long <- dplyr::bind_rows(
+  data.frame(var = "Temperature", value = profile_nc$temp_C, depth_mid_m = profile_nc$depth_mid_m),
+  data.frame(var = "Oxygen", value = profile_nc$pO2_kPa, depth_mid_m = profile_nc$depth_mid_m)
+)
+
+forcing_plot <- ggplot2::ggplot(forcing_long, ggplot2::aes(x = value, y = depth_mid_m, color = var)) +
+  ggplot2::geom_path(linewidth = 1.0, na.rm = TRUE) +
+  ggplot2::scale_color_manual(values = c("Temperature" = "#BA584D", "Oxygen" = "#6a51a3")) +
+  ggplot2::scale_y_reverse(expand = c(0.01, 0.01)) +
+  ggplot2::labs(x = "Value", y = "Depth (m)", color = "Profile", title = "CCE forcing profiles") +
+  proposal_theme() +
+  ggplot2::theme(aspect.ratio = 1.45)
+
+forcing_plot
+```
+
+### 2) Day/night vertical distributions for largest stages
+
+```{r proposal-depth-distributions, fig.height=6.8}
+find_group_col <- function(p, pattern) {
+  idx <- grep(pattern, p$groupnames[-seq_len(p$nResources)], ignore.case = TRUE)
+  if (length(idx) == 0) stop("Could not find group pattern: ", pattern)
+  p$ix[[idx[1]]][length(p$ix[[idx[1]]])]
+}
+
+stage_cols <- data.frame(
+  species = c("Large pelagic", "Mesopelagic", "Midwater predator"),
+  col_id = c(
+    find_group_col(p, "largePel|large pelagic"),
+    find_group_col(p, "mesoPel|mesopelagic"),
+    find_group_col(p, "bathyPel|midwater|predator")
+  )
+)
+
+depth_dist <- dplyr::bind_rows(
+  do.call(rbind, lapply(seq_len(nrow(stage_cols)), function(i) {
+    ci <- stage_cols$col_id[i]
+    sp <- stage_cols$species[i]
+    data.frame(species = sp, period = "Day", depth_mid_m = p$z, probability = p$depthDay[, ci])
+  })),
+  do.call(rbind, lapply(seq_len(nrow(stage_cols)), function(i) {
+    ci <- stage_cols$col_id[i]
+    sp <- stage_cols$species[i]
+    data.frame(species = sp, period = "Night", depth_mid_m = p$z, probability = p$depthNight[, ci])
+  }))
+)
+
+depth_plot <- ggplot2::ggplot(depth_dist, ggplot2::aes(x = probability, y = depth_mid_m, linetype = period)) +
+  ggplot2::geom_path(linewidth = 0.9, color = "grey15", na.rm = TRUE) +
+  ggplot2::scale_linetype_manual(values = c("Day" = "solid", "Night" = "dashed")) +
+  ggplot2::scale_y_reverse(expand = c(0.01, 0.01)) +
+  ggplot2::facet_wrap(~ species, nrow = 1) +
+  ggplot2::labs(x = "Relative vertical distribution", y = "Depth (m)", linetype = NULL,
+                title = "Largest-stage day/night vertical distributions") +
+  proposal_theme() +
+  ggplot2::theme(aspect.ratio = 1.55)
+
+depth_plot
+```
+
+### 3) Trophic networks: oxygen vs no oxygen
+
+```{r proposal-networks, fig.height=7.2, warning=FALSE}
+network_o2 <- plotNetwork(sim, manual_scale_b = TRUE, ref_b = 50) +
+  ggplot2::ggtitle("With oxygen limitation") +
+  proposal_theme(base_size = 9)
+
+network_no_o2 <- plotNetwork(sim_no_o2, manual_scale_b = TRUE, ref_b = 50) +
+  ggplot2::ggtitle("Without oxygen limitation") +
+  proposal_theme(base_size = 9)
+
+network_pair <- network_o2 / network_no_o2 + patchwork::plot_layout(guides = "collect")
+network_pair
+```
+
+### 4) Save proposal-ready outputs (6.5" wide)
+
+```{r proposal-save, eval=TRUE}
+out_dir <- here::here("outputs", "proposal_figures")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+ggplot2::ggsave(file.path(out_dir, "cce_forcing_profiles_temp_o2.png"), forcing_plot,
+                width = 6.5, height = 7.8, dpi = 300)
+
+ggplot2::ggsave(file.path(out_dir, "cce_largest_stage_day_night_depth_profiles.png"), depth_plot,
+                width = 6.5, height = 9.4, dpi = 300)
+
+ggplot2::ggsave(file.path(out_dir, "cce_trophic_network_o2_vs_no_o2.png"), network_pair,
+                width = 6.5, height = 10.0, dpi = 300)
+```
