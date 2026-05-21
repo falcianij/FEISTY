@@ -249,11 +249,11 @@ find_group_col <- function(p, pattern) {
 }
 
 stage_cols <- data.frame(
-  species = c("Large pelagic", "Mesopelagic", "Midwater predator"),
+  species = c("Large pelagic", "Mesopelagic", "Forage"),
   col_id = c(
     find_group_col(p, "largePel"),
     find_group_col(p, "mesoPel"),
-    find_group_col(p, "midwPred")
+    find_group_col(p, "smallPel")
   )
 )
 
@@ -286,7 +286,7 @@ build_depth_df <- function(period = c("Day", "Night")) {
 
 depth_dist <- dplyr::bind_rows(build_depth_df("Day"), build_depth_df("Night"))
 
-species_order <- c("Large pelagic", "Mesopelagic", "Midwater predator")
+species_order <- c("Forage", "Large pelagic", "Mesopelagic")
 y_lim <- c(0, 1000)
 
 mk_species_panel <- function(sp) {
@@ -303,7 +303,7 @@ mk_species_panel <- function(sp) {
     ggplot2::scale_color_manual(values = c(
       "Large pelagic" = unname(p$my_palette["largePel"]),
       "Mesopelagic" = unname(p$my_palette["mesoPel"]),
-      "Midwater predator" = unname(p$my_palette["midwPred"])
+      "Forage" = unname(p$my_palette["smallPel"])
     ), drop = FALSE) +
     ggplot2::theme(
       aspect.ratio = 6,
@@ -336,7 +336,7 @@ force_panel <- ggplot2::ggplot() +
     ggplot2::scale_y_reverse(limits = c(1000, 0), expand = c(0.01, 0.01)) +
   ggplot2::labs(y = "Depth (m)", x = NULL) +
   proposal_theme() +
-  ggplot2::theme(axis.title.x = ggplot2::element_blank(), aspect.ratio = 3.8, legend.position = "none")
+  ggplot2::theme(axis.title.x = ggplot2::element_blank(), aspect.ratio = 6, legend.position = "none")
 
 fish_p1 <- mk_species_panel(species_order[1])
 fish_p2 <- mk_species_panel(species_order[2])
@@ -364,13 +364,14 @@ depth_plot
 
 ### 4) Composite proposal panel (left: profiles, right: networks)
 
-
+```{r}
 remove_logticks_layer <- function(g) {
   keep <- vapply(g$layers, function(ly) !inherits(ly$geom, "GeomLogticks"), logical(1))
   g$layers <- g$layers[keep]
   g
 }
-<!-- Manual tuning knobs: edit fig.height in this chunk and aspect.ratio in force_panel/mk_species_panel themes below. Keep width=6.5 in proposal-save. -->
+#<!-- Manual tuning knobs: edit fig.height in this chunk and aspect.ratio in force_panel/mk_species_panel themes below. Keep width=6.5 in proposal-save. -->
+```
 
 ```{r proposal-composite, fig.height=4.5, warning=FALSE}
 network_o2 <- remove_logticks_layer(plotNetwork(sim, manual_scale_b = TRUE, ref_b = 50)) +
@@ -394,6 +395,59 @@ proposal_panel <- patchwork::wrap_plots(list(left_profiles, right_networks),
 )
 proposal_panel
 ```
+
+```{r proposal-composite2, fig.height=3.5, fig.width=6.5, warning=FALSE}
+network_height <- 1.25   # try 0.45–0.75; smaller = shorter networks
+
+network_o2 <- remove_logticks_layer(plotNetwork(sim, manual_scale_b = TRUE, ref_b = 50)) +
+  proposal_theme(base_size = 9) +
+  ggplot2::theme(
+    panel.grid.major.y = ggplot2::element_blank(),
+    legend.position = "none",
+    axis.text.y = ggplot2::element_text(angle = 90, vjust = 0.5),
+    aspect.ratio = network_height
+  ) +
+  ggplot2::scale_y_continuous(
+    breaks = c(-0.2 * p$bottom, -0.8 * p$bottom),
+    labels = c("shallow", "deep")
+  )
+
+network_no_o2 <- remove_logticks_layer(plotNetwork(sim_no_o2, manual_scale_b = TRUE, ref_b = 50)) +
+  proposal_theme(base_size = 9) +
+  ggplot2::theme(
+    panel.grid.major.y = ggplot2::element_blank(),
+    legend.position = "none",
+    axis.text.y = ggplot2::element_text(angle = 90, vjust = 0.5),
+    aspect.ratio = network_height
+  ) +
+  ggplot2::scale_y_continuous(
+    breaks = c(-0.2 * p_no_o2$bottom, -0.8 * p_no_o2$bottom),
+    labels = c("shallow", "deep")
+  )
+
+left_profiles <- patchwork::wrap_plots(
+  list(force_panel, fish_p1, fish_p2, fish_p3),
+  ncol = 4,
+  widths = c(1, 1, 1, 1),
+  guides = "collect"
+)
+
+right_networks <- patchwork::wrap_plots(
+  list(network_no_o2, network_o2),
+  ncol = 2,
+  nrow = 1
+)
+
+proposal_panel <- patchwork::wrap_plots(
+  list(left_profiles, right_networks),
+  ncol = 2,
+  widths = c(1, 2)
+)
+
+proposal_panel
+```
+
+
 ```{r proposal-save, eval=TRUE}
 out_dir <- here::here("outputs", "proposal_figures")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
@@ -411,5 +465,14 @@ ggplot2::ggsave(file.path(out_dir, "cce_trophic_network_o2_vs_no_o2.png"), right
                 width = 6.5, height = 10.0, dpi = 300)
 
 ggplot2::ggsave(file.path(out_dir, "cce_profiles_and_networks_composite.png"), proposal_panel,
-                width = 6.5, height = 4.5, dpi = 300)
+                width = 6.5, height = 3.5, dpi = 300)
+
+ggplot2::ggsave(
+  filename = file.path(out_dir, "cce_profiles_and_networks_composite.pdf"),
+  plot = proposal_panel,
+  width = 6.5,
+  height = 3.5,
+  units = "in",
+  device = cairo_pdf
+)
 ```
