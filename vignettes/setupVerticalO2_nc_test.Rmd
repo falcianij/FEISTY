@@ -240,9 +240,9 @@ forcing_plot <- ggplot2::ggplot() +
 forcing_plot
 ```
 
-### 2) Day/night vertical distributions for largest stages
+### 2) Shared forcing + fish profiles (matched depth axis)
 
-```{r proposal-depth-distributions, fig.height=6.8}
+```{r proposal-depth-distributions, fig.height=7.5}
 find_group_col <- function(p, pattern) {
   idx <- grep(pattern, p$groupnames[-seq_len(p$nResources)], ignore.case = TRUE)
   if (length(idx) == 0) stop("Could not find group pattern: ", pattern)
@@ -258,8 +258,16 @@ stage_cols <- data.frame(
   )
 )
 
-# Ensure depth vectors use matching vertical coordinate length
-z_depth <- if (length(p$z) == nrow(p$depthDay)) p$z else seq_len(nrow(p$depthDay))
+# Use the same depth support as profile forcing when possible
+z_depth <- if (!is.null(p$z_mid) && length(p$z_mid) == nrow(p$depthDay)) {
+  p$z_mid
+} else if (length(profile_nc$depth_mid_m) == nrow(p$depthDay)) {
+  profile_nc$depth_mid_m
+} else if (length(p$z) == nrow(p$depthDay)) {
+  p$z
+} else {
+  seq_len(nrow(p$depthDay))
+}
 
 build_depth_df <- function(period = c("Day", "Night")) {
   period <- match.arg(period)
@@ -278,13 +286,16 @@ build_depth_df <- function(period = c("Day", "Night")) {
 }
 
 depth_dist <- dplyr::bind_rows(build_depth_df("Day"), build_depth_df("Night"))
+
 species_order <- c("Large pelagic", "Mesopelagic", "Midwater predator")
+y_lim <- range(z_depth, na.rm = TRUE)
+
 mk_species_panel <- function(sp, show_y = TRUE) {
   ggplot2::ggplot(subset(depth_dist, species == sp), ggplot2::aes(x = probability, y = depth_mid_m, linetype = period)) +
     ggplot2::geom_path(linewidth = 0.9, color = "grey15", na.rm = TRUE) +
     ggplot2::scale_linetype_manual(values = c("Day" = "solid", "Night" = "dashed")) +
-    ggplot2::scale_y_reverse(expand = c(0.01, 0.01)) +
-    ggplot2::labs(title = sp, x = "Relative vertical distribution", y = if (show_y) "Depth (m)" else NULL, linetype = "Period") +
+    ggplot2::scale_y_reverse(limits = rev(y_lim), expand = c(0.01, 0.01)) +
+    ggplot2::labs(title = sp, x = "Depth fraction", y = if (show_y) "Depth (m)" else NULL, linetype = "Period") +
     proposal_theme() +
     ggplot2::theme(
       aspect.ratio = 1.55,
@@ -297,11 +308,19 @@ mk_species_panel <- function(sp, show_y = TRUE) {
     )
 }
 
-p1 <- mk_species_panel(species_order[1], show_y = TRUE)
-p2 <- mk_species_panel(species_order[2], show_y = FALSE)
-p3 <- mk_species_panel(species_order[3], show_y = FALSE)
+fish_group_plot <- (mk_species_panel(species_order[1], TRUE) | mk_species_panel(species_order[2], FALSE) | mk_species_panel(species_order[3], FALSE)) +
+  patchwork::plot_layout(guides = "collect") + patchwork::plot_annotation(title = "Fish profiles")
 
-depth_plot <- (p1 | p2 | p3) + patchwork::plot_layout(guides = "collect") + patchwork::plot_annotation(title = "Fish profiles")
+combined_profiles <- forcing_plot + fish_group_plot +
+  patchwork::plot_layout(widths = c(1.05, 2.2))
+
+combined_profiles
+```
+
+### 3) Fish-profile-only panel (for export)
+
+```{r fish-only-export-plot, fig.height=6.8}
+depth_plot <- fish_group_plot
 depth_plot
 ```
 
@@ -334,6 +353,9 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 ggplot2::ggsave(file.path(out_dir, "cce_forcing_profiles_temp_o2.png"), forcing_plot,
                 width = 6.5, height = 7.8, dpi = 300)
+
+ggplot2::ggsave(file.path(out_dir, "cce_forcing_plus_fish_profiles.png"), combined_profiles,
+                width = 6.5, height = 9.4, dpi = 300)
 
 ggplot2::ggsave(file.path(out_dir, "cce_largest_stage_day_night_depth_profiles.png"), depth_plot,
                 width = 6.5, height = 9.4, dpi = 300)
