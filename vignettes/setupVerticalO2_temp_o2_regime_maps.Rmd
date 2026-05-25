@@ -1,0 +1,270 @@
+---
+title: "Temperature + Oxygen Regime Maps from NetCDF Forcing"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Temperature and oxygen regime maps from NetCDF forcing}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6.5, fig.height = 2.6)
+```
+
+## Purpose
+
+Build **three global maps** (surface, midwater, bottom) from historical and projected NetCDF forcing files by:
+
+1. averaging projected minus historical **temperature** and **oxygen** differences within each depth regime,
+2. classifying each grid cell as:
+   - `Warming`
+   - `Deoxygenation`
+   - `Warming & Deoxygenation`
+   - `No regime change`
+3. plotting in **Robinson projection** with total panel width 6.5".
+
+## Load FEISTY functions and configure NetCDF inputs
+
+```{r setup-local}
+# Load FEISTY functions locally through devtools (same pattern as other setupVerticalO2 NetCDF vignettes).
+devtools::load_all(path = here::here())
+
+nc_hist_path <- here::here("data", "profiles_hist_last10y.nc")
+nc_proj_path <- here::here("data", "profiles_ssp585_last10y.nc")
+out_dir <- here::here("outputs", "temp_o2_regime_maps")
+
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Depth breaks in meters.
+surface_max_m <- 200
+midwater_max_m <- 1000
+
+# Thresholds for classification.
+warming_threshold_C <- 0.5
+deoxygenation_threshold_kPa <- -0.25
+
+stopifnot(file.exists(nc_hist_path), file.exists(nc_proj_path))
+```
+
+## Read NetCDF and align variables
+
+```{r read-nc}
+stopifnot(requireNamespace("ncdf4", quietly = TRUE))
+stopifnot(requireNamespace("dplyr", quietly = TRUE))
+
+nc_h <- ncdf4::nc_open(nc_hist_path)
+on.exit(ncdf4::nc_close(nc_h), add = TRUE)
+nc_p <- ncdf4::nc_open(nc_proj_path)
+on.exit(ncdf4::nc_close(nc_p), add = TRUE)
+
+lon_h <- as.numeric(ncdf4::ncvar_get(nc_h, "lon"))
+lat_h <- as.numeric(ncdf4::ncvar_get(nc_h, "lat"))
+lev_h <- as.numeric(ncdf4::ncvar_get(nc_h, "lev"))
+
+lon_p <- as.numeric(ncdf4::ncvar_get(nc_p, "lon"))
+lat_p <- as.numeric(ncdf4::ncvar_get(nc_p, "lat"))
+lev_p <- as.numeric(ncdf4::ncvar_get(nc_p, "lev"))
+
+stopifnot(identical(lon_h, lon_p), identical(lat_h, lat_p), identical(lev_h, lev_p))
+
+T_hist <- read_var_lon_lat_lev(nc_h, "T_mean", length(lon_h), length(lat_h), length(lev_h))
+T_proj <- read_var_lon_lat_lev(nc_p, "T_mean", length(lon_h), length(lat_h), length(lev_h))
+O_hist <- read_var_lon_lat_lev(nc_h, "pO2_mean", length(lon_h), length(lat_h), length(lev_h))
+O_proj <- read_var_lon_lat_lev(nc_p, "pO2_mean", length(lon_h), length(lat_h), length(lev_h))
+
+dT <- T_proj - T_hist
+dO <- O_proj - O_hist
+
+lon180 <- ifelse(lon_h > 180, lon_h - 360, lon_h)
+```
+
+## Build depth regimes and summarize mean deltas
+
+```{r summarize-by-regime}
+regime_from_depth <- function(depth_m, depth_vec) {
+  deepest_mid <- max(depth_vec[is.finite(depth_vec)])
+
+  if (!is.finite(depth_m)) return(NA_character_)
+  if (depth_m >= deepest_mid) return("bottom")
+  if (depth_m <= surface_max_m) return("surface")
+  if (depth_m <= midwater_max_m) return("midwater")
+  "bottom"
+}
+
+regime_levels <- c("surface", "midwater", "bottom")
+
+cells <- expand.grid(
+  ix = seq_along(lon_h),
+  iy = seq_along(lat_h),
+  iz = seq_along(lev_h),
+  KEEP.OUT.ATTRS = FALSE
+)
+
+cells$lon <- lon180[cells$ix]
+cells$lat <- lat_h[cells$iy]
+cells$depth_mid_m <- lev_h[cells$iz]
+cells$depth_regime <- vapply(cells$depth_mid_m, regime_from_depth, character(1), depth_vec = lev_h)
+cells$dT <- as.numeric(dT[cbind(cells$ix, cells$iy, cells$iz)])
+cells$dO <- as.numeric(dO[cbind(cells$ix, cells$iy, cells$iz)])
+
+cells <- cells[is.finite(cells$dT) & is.finite(cells$dO), , drop = FALSE]
+
+delta_regimes <- cells |>
+  dplyr::group_by(depth_regime, lon, lat) |>
+  dplyr::summarise(
+    delta_temp_C = mean(dT, na.rm = TRUE),
+    delta_o2_kPa = mean(dO, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+delta_regimes$depth_regime <- factor(
+  delta_regimes$depth_regime,
+  levels = regime_levels,
+  labels = c("Surface", "Midwater", "Bottom")
+)
+```
+
+## Classify regime change
+
+```{r classify}
+delta_regimes$regime_class <- with(
+  delta_regimes,
+  ifelse(
+    delta_temp_C >= warming_threshold_C & delta_o2_kPa <= deoxygenation_threshold_kPa,
+    "Warming & Deoxygenation",
+    ifelse(
+      delta_temp_C >= warming_threshold_C,
+      "Warming",
+      ifelse(delta_o2_kPa <= deoxygenation_threshold_kPa, "Deoxygenation", "No regime change")
+    )
+  )
+)
+
+delta_regimes$regime_class <- factor(
+  delta_regimes$regime_class,
+  levels = c("Warming", "Deoxygenation", "Warming & Deoxygenation", "No regime change")
+)
+
+head(delta_regimes)
+```
+
+## Plot 3-panel Robinson maps
+
+```{r map, fig.width=6.5, fig.height=7.8}
+stopifnot(requireNamespace("sf", quietly = TRUE))
+stopifnot(requireNamespace("terra", quietly = TRUE))
+stopifnot(requireNamespace("rnaturalearth", quietly = TRUE))
+stopifnot(requireNamespace("ggplot2", quietly = TRUE))
+stopifnot(requireNamespace("patchwork", quietly = TRUE))
+
+world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+robin_crs <- "+proj=robin +lon_0=0 +datum=WGS84 +units=m +no_defs"
+world_robin <- sf::st_transform(world, crs = sf::st_crs(robin_crs))
+
+
+# Build a map-frame polygon from the geographic domain boundary and project
+# it to Robinson so the border follows the projection edge (not a rectangle).
+make_robinson_frame <- function() {
+  lons <- seq(-180, 180, by = 1)
+  lats <- seq(-90, 90, by = 1)
+
+  ring <- rbind(
+    cbind(lons, rep(-90, length(lons))),
+    cbind(rep(180, length(lats) - 1), lats[-1]),
+    cbind(rev(lons[-length(lons)]), rep(90, length(lons) - 1)),
+    cbind(rep(-180, length(lats) - 1), rev(lats[-length(lats)])),
+    matrix(c(-180, -90), ncol = 2)
+  )
+
+  frame_ll <- sf::st_sfc(sf::st_polygon(list(ring)), crs = 4326)
+  sf::st_transform(frame_ll, crs = sf::st_crs(robin_crs))
+}
+
+robin_frame <- make_robinson_frame()
+
+class_cols <- c(
+  "Warming" = "#C9574A",
+  "Deoxygenation" = "#674776",
+  "Warming & Deoxygenation" = "#D3D694",
+  "No regime change" = "gray90"
+)
+
+class_levels <- levels(delta_regimes$regime_class)
+delta_regimes$class_code <- as.integer(factor(delta_regimes$regime_class, levels = class_levels))
+
+lon_vals <- sort(unique(delta_regimes$lon))
+lat_vals <- sort(unique(delta_regimes$lat))
+
+dlon <- min(diff(lon_vals))
+dlat <- min(diff(lat_vals))
+
+make_projected_raster_df <- function(dat_regime) {
+  r <- terra::rast(
+    ncols = length(lon_vals),
+    nrows = length(lat_vals),
+    xmin = min(lon_vals) - dlon / 2,
+    xmax = max(lon_vals) + dlon / 2,
+    ymin = min(lat_vals) - dlat / 2,
+    ymax = max(lat_vals) + dlat / 2,
+    crs = "EPSG:4326"
+  )
+
+  vals <- rep(NA_real_, terra::ncell(r))
+  col_ix <- match(dat_regime$lon, lon_vals)
+  row_ix <- match(dat_regime$lat, lat_vals)
+  cell_ix <- terra::cellFromRowCol(r, row = length(lat_vals) - row_ix + 1, col = col_ix)
+  vals[cell_ix] <- dat_regime$class_code
+  terra::values(r) <- vals
+
+  r_robin <- terra::project(r, robin_crs, method = "near")
+  df <- as.data.frame(r_robin, xy = TRUE, na.rm = FALSE)
+  names(df)[3] <- "class_code"
+  df$regime_class <- factor(class_levels[df$class_code], levels = class_levels)
+  df
+}
+
+plot_regime <- function(regime_label) {
+  dat <- subset(delta_regimes, depth_regime == regime_label)
+  df_r <- make_projected_raster_df(dat)
+
+  ggplot2::ggplot(df_r, ggplot2::aes(x = x, y = y, fill = regime_class)) +
+    ggplot2::geom_raster(interpolate = FALSE) +
+    ggplot2::geom_sf(data = world_robin, fill = "black", color = "black", linewidth = 0.05, inherit.aes = FALSE) +
+    ggplot2::geom_sf(data = robin_frame, fill = NA, color = "grey50", linewidth = 0.4, inherit.aes = FALSE) +
+    ggplot2::scale_fill_manual(values = class_cols, drop = FALSE, na.value = "white") +
+    ggplot2::coord_sf(crs = sf::st_crs(robin_crs), expand = FALSE) +
+    ggplot2::labs(title = regime_label, fill = "Class") +
+    ggplot2::theme_minimal(base_size = 8) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      panel.background = ggplot2::element_rect(fill = "white", colour = NA),
+      plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+      axis.text = ggplot2::element_blank(),
+      axis.title = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+      legend.position = "bottom",
+      legend.direction = "horizontal"
+    )
+}
+
+p_surface <- plot_regime("Surface")
+p_midwater <- plot_regime("Midwater")
+p_bottom <- plot_regime("Bottom")
+
+p_regimes <- (
+  p_surface / p_midwater / p_bottom
+) +
+  patchwork::plot_layout(guides = "collect") &
+  ggplot2::theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal"
+  )
+
+plot_file_png <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.png")
+plot_file_pdf <- file.path(out_dir, "temp_o2_regime_maps_robinson_6p5in.pdf")
+
+ggplot2::ggsave(plot_file_png, p_regimes, width = 6.5, height = 7.8, dpi = 300)
+ggplot2::ggsave(plot_file_pdf, p_regimes, width = 6.5, height = 7.8, device = grDevices::cairo_pdf)
+
+p_regimes
+```
