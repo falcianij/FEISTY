@@ -51,10 +51,10 @@ read_var_lon_lat_lev <- function(nc, varname, lon_n, lat_n, lev_n) {
   arr
 }
 
-is_valid_profile_vectors <- function(temp_C, pO2_kPa, zmeso, zmicro, I_day_rel, I_night_rel,
+is_valid_profile_vectors <- function(temp_C, pO2_kPa, zmeso_day, zmeso_night, zmicro_day, zmicro_night, I_day_rel, I_night_rel,
                                      dz_m, min_valid_depths = 5L) {
-  ok <- is.finite(temp_C) & is.finite(pO2_kPa) & is.finite(zmeso) &
-    is.finite(zmicro) & is.finite(I_day_rel) & is.finite(I_night_rel) & is.finite(dz_m)
+  ok <- is.finite(temp_C) & is.finite(pO2_kPa) & is.finite(zmeso_day) & is.finite(zmeso_night) &
+    is.finite(zmicro_day) & is.finite(zmicro_night) & is.finite(I_day_rel) & is.finite(I_night_rel) & is.finite(dz_m)
 
   if (sum(ok) < min_valid_depths) return(FALSE)
   if (any(dz_m[ok] <= 0)) return(FALSE)
@@ -101,7 +101,7 @@ read_hist_nc_profiles <- function(nc_hist, max_locations = NULL, min_valid_depth
     iday <- as.numeric(Id_h[ix, iy, ])
     inight <- as.numeric(In_h[ix, iy, ])
 
-    valid <- is_valid_profile_vectors(temp, po2, zmeso, zmicro, iday, inight, bnds$dz_m,
+    valid <- is_valid_profile_vectors(temp, po2, zmeso, zmeso, zmicro, zmicro, iday, inight, bnds$dz_m,
                                       min_valid_depths = min_valid_depths)
     if (!valid) return(NULL)
 
@@ -120,8 +120,10 @@ read_hist_nc_profiles <- function(nc_hist, max_locations = NULL, min_valid_depth
       scenario = "hist",
       temp_C = temp,
       pO2_kPa = po2,
-      zmeso = zmeso,
-      zmicro = zmicro,
+      zmeso_day = zmeso,
+      zmeso_night = zmeso,
+      zmicro_day = zmicro,
+      zmicro_night = zmicro,
       I_day_rel = iday,
       I_night_rel = inight,
       stringsAsFactors = FALSE
