@@ -5,7 +5,7 @@
 # Output columns match setupVerticalO2()/read_vertical_o2_profile expectations:
 # site, lon180_requested, lat_requested, lon360_grid, lon180_grid, lat_grid,
 # depth_idx, depth_mid_m, depth_top_m, depth_bot_m, dz_m, scenario,
-# temp_C, pO2_kPa, zmeso, zmicro, I_day_rel, I_night_rel
+# temp_C, pO2_kPa, zmeso_day, zmeso_night, zmicro_day, zmicro_night, I_day_rel, I_night_rel
 
 layer_bounds_from_midpoints <- function(mid_m) {
   mid_m <- as.numeric(mid_m)
@@ -123,8 +123,10 @@ convert_profiles_hist_nc_to_csv <- function(
       scenario = rep("hist", nz),
       temp_C = Th,
       pO2_kPa = Oh,
-      zmeso = Zh,
-      zmicro = Mh,
+      zmeso_day = Zh,
+      zmeso_night = Zh,
+      zmicro_day = Mh,
+      zmicro_night = Mh,
       I_day_rel = Idh,
       I_night_rel = Inh,
       stringsAsFactors = FALSE

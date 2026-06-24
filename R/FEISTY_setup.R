@@ -1304,198 +1304,445 @@ setupVertical2 = function(szprod = 80, # small zoo production
 
 
 
-read_vertical_o2_profile <- function(
-  profile_path,
-  site,
-  scenario,
-  fill_internal_gaps = FALSE,
-  required_cols = c(
+verticalO2RequiredColumns = function() {
+  c(
     "depth_idx", "depth_mid_m", "depth_top_m", "depth_bot_m", "dz_m",
-    "temp_C", "pO2_kPa", "zmeso", "zmicro", "I_day_rel", "I_night_rel"
+    "temp_C", "pO2_kPa", "zmeso_day", "zmeso_night", "zmicro_day", "zmicro_night",
+    "I_day_rel", "I_night_rel"
   )
-) {
-  prof <- utils::read.csv(profile_path, stringsAsFactors = FALSE)
-  prof <- prof[prof$site == site & prof$scenario == scenario, , drop = FALSE]
-  if (nrow(prof) == 0) stop("No rows found for selected site/scenario in profile file.")
-  normalize_vertical_o2_profile(prof, fill_internal_gaps = fill_internal_gaps, required_cols = required_cols)
 }
 
-normalize_vertical_o2_profile <- function(
-  prof,
-  fill_internal_gaps = FALSE,
-  required_cols = c(
-    "depth_idx", "depth_mid_m", "depth_top_m", "depth_bot_m", "dz_m",
-    "temp_C", "pO2_kPa", "zmeso", "zmicro", "I_day_rel", "I_night_rel"
-  )
-) {
-  missing_cols <- setdiff(required_cols, names(prof))
+verticalO2CheckProfile = function(profile, required_cols = verticalO2RequiredColumns()) {
+  if (missing(profile) || is.null(profile) || !is.data.frame(profile)) {
+    stop("setupVerticalO2() requires a profile data.frame. Load CSV/NetCDF inputs outside FEISTY, for example with scripts/vertical_o2_profiles.R.")
+  }
+
+  missing_cols = setdiff(required_cols, names(profile))
   if (length(missing_cols) > 0) {
     stop("Profile is missing required columns: ", paste(missing_cols, collapse = ", "))
   }
 
-  ord_col <- if ("depth_idx" %in% names(prof)) "depth_idx" else "depth_mid_m"
-  prof <- prof[order(prof[[ord_col]]), , drop = FALSE]
-  valid <- stats::complete.cases(prof[, required_cols, drop = FALSE])
-  if (!any(valid)) stop("No valid profile rows after applying required columns.")
-  last_valid <- max(which(valid))
-  prof <- prof[seq_len(last_valid), , drop = FALSE]
-  valid2 <- stats::complete.cases(prof[, required_cols, drop = FALSE])
-  if (any(!valid2)) {
-    if (!fill_internal_gaps) {
-      stop("Internal missing values found in profile; set fill_internal_gaps=TRUE to interpolate.")
-    }
-    xi <- prof$depth_mid_m
-    num_cols <- c("temp_C", "pO2_kPa", "zmeso", "zmicro", "I_day_rel", "I_night_rel")
-    for (nm in num_cols) {
-      y <- prof[[nm]]
-      ok <- is.finite(y)
-      if (sum(ok) < 2) stop("Cannot interpolate ", nm, ": fewer than 2 finite points.")
-      prof[[nm]] <- stats::approx(x = xi[ok], y = y[ok], xout = xi, rule = 2)$y
-    }
+  profile = profile[order(profile$depth_idx), , drop = FALSE]
+  if (!all(stats::complete.cases(profile[, required_cols, drop = FALSE]))) {
+    stop("Profile contains missing values in setupVerticalO2() required columns. Clean/fill the profile before calling setupVerticalO2().")
   }
-  prof
+
+  if (any(profile$dz_m <= 0)) stop("Profile column dz_m must be positive.")
+  if (any(profile$depth_bot_m <= profile$depth_top_m)) stop("Profile depth_bot_m must be deeper than depth_top_m.")
+
+  profile
 }
 
-VertDistProfile <- function(z_mid, dz, sigma, xloc) {
+verticalO2ResourceConversion = function(resource_input_units = "molN_m3",
+                                        input_to_gN = 14.0,
+                                        N_to_C = 5.625,
+                                        C_to_wet = 10) {
+  if (resource_input_units == "molN_m3") {
+    input_to_gN * N_to_C * C_to_wet
+  } else if (resource_input_units == "mmolN_m3") {
+    14e-3 * N_to_C * C_to_wet
+  } else if (resource_input_units == "molC_m3") {
+    12.0 * C_to_wet
+  } else if (resource_input_units == "gWW_m3") {
+    1
+  } else {
+    stop("Unsupported resource_input_units: ", resource_input_units)
+  }
+}
+
+verticalO2NormalizeMass = function(x, fallback) {
+  x[!is.finite(x) | x < 0] = 0
+  total = sum(x)
+  if (total > 0) x / total else fallback
+}
+
+verticalO2ResourceProfiles = function(profile, dz, I_eu,
+                                      resource_input_units = "molN_m3",
+                                      input_to_gN = 14.0,
+                                      N_to_C = 5.625,
+                                      C_to_wet = 10) {
+  conv = verticalO2ResourceConversion(
+    resource_input_units = resource_input_units,
+    input_to_gN = input_to_gN,
+    N_to_C = N_to_C,
+    C_to_wet = C_to_wet
+  )
+
+  small_day   = profile$zmicro_day   * conv * dz
+  small_night = profile$zmicro_night * conv * dz
+  large_day   = profile$zmeso_day    * conv * dz
+  large_night = profile$zmeso_night  * conv * dz
+
+  fallback = ifelse(profile$I_day_rel >= I_eu, 1, 0)
+  if (sum(fallback) == 0) fallback[] = 1
+  fallback = fallback / sum(fallback)
+
+  list(
+    szprod = 0.5 * (sum(small_day) + sum(small_night)),
+    lzprod = 0.5 * (sum(large_day) + sum(large_night)),
+    small_day = verticalO2NormalizeMass(small_day, fallback),
+    small_night = verticalO2NormalizeMass(small_night, fallback),
+    large_day = verticalO2NormalizeMass(large_day, fallback),
+    large_night = verticalO2NormalizeMass(large_night, fallback)
+  )
+}
+
+verticalO2Distribution = function(z_mid, dz, sigma, xloc) {
   xloc = rep(xloc, length.out = length(sigma))
   P = matrix(0, nrow = length(z_mid), ncol = length(sigma))
+
   for (i in seq_along(sigma)) {
     dens = exp(-0.5 * ((z_mid - xloc[i]) / sigma[i])^2)
     mass = dens * dz
+
     if (sum(mass, na.rm = TRUE) <= 0 || all(!is.finite(mass))) {
-      nearest = which.min(abs(z_mid - xloc[i]))
-      P[nearest, i] = 1
+      P[which.min(abs(z_mid - xloc[i])), i] = 1
     } else {
       P[, i] = mass / sum(mass, na.rm = TRUE)
     }
   }
+
   P
 }
 
-calc_light_scalar <- function(L, K_L = 0.1, h_L = 1, L_min = 0.5, L_max = 1.5) {
-  L_min + (L_max - L_min) * L^h_L / (L^h_L + K_L^h_L)
+verticalO2StageFlags = function(p, ix) {
+  ml = p$mLower[ix]
+  med = ml >= 0.5
+  lg = ml >= 250
+
+  if (!any(med)) med[which.min(abs(ml - 0.5))] = TRUE
+  if (!any(lg)) lg[which.min(abs(ml - 250))] = TRUE
+
+  list(med = med, lg = lg)
 }
 
-setupVerticalO2 <- function(profile = NULL, profile_path = here::here("data/profiles_sites_hist_vs_ssp585_long.csv"), site = NULL, scenario = NULL,
-  szprod = NULL, lzprod = NULL, bprodin = NA, dfbot = NA, dfpho = NA, nStages = 9, photic = NULL, shelfdepth = 250,
-  visual = 1.5, etaMature = 0.25, Fmax = 0, etaF = 0.05, bET = TRUE, I_eu = 0.01, ssigma = 10, tau = 10,
-  fill_internal_gaps = FALSE, use_legacy_visual = FALSE, K_O = 2, h_O = 1, T_ref_O2 = 10, b_D = 0.75, b_S = 0.67,
-  Q10_D = 2, Q10_S = 1.5, delta_pO2_ref = 2, w_ref_O2 = 1, use_oxygen = TRUE,
-  K_L = 0.1, h_L = 1, L_min = 0.5, L_max = 1.5, light_bottom_to_one = TRUE,
-  resource_input_units = "molN_m3", input_to_gN = 14.0, N_to_C = 5.625, C_to_wet = 10, ...) {
-  if (is.null(profile)) {
-    profile <- read_vertical_o2_profile(profile_path, site, scenario, fill_internal_gaps)
-  } else {
-    profile <- normalize_vertical_o2_profile(profile, fill_internal_gaps = fill_internal_gaps)
-  }
-  z_mid <- profile$depth_mid_m; z_top <- profile$depth_top_m; z_bot <- profile$depth_bot_m; dz <- profile$dz_m; Z <- nrow(profile)
-  depth <- max(z_bot); bottom <- depth
-  if (is.null(photic)) {euphotic <- profile$I_day_rel >= I_eu; photic <- if (any(euphotic)) max(z_bot[euphotic]) else min(z_bot)}
-  surface_depth <- min(z_mid); bottom_depth <- max(z_mid)
-  dvm <- photic + 500; if (dvm > bottom) dvm <- bottom; if (bottom <= shelfdepth) dvm <- surface_depth
-  clip_depth <- function(x) min(max(x, surface_depth), bottom_depth)
-  dvm_depth <- clip_depth(dvm); bottom_target <- bottom_depth
-  demmig <- dvm; if ((bottom - dvm) >= 1200) demmig <- dvm + (bottom - dvm - 1200); if ((bottom - dvm) >= 1500) demmig <- bottom
-  demmig_depth <- clip_depth(demmig)
-  if (is.na(bprodin) & is.na(dfbot) & is.na(dfpho)){dfpho <- 350; bprod <- 0.1*(dfpho*(depth/photic)^-0.86); if (bprod >= 0.1*dfpho) bprod <- 0.1*dfpho
-  } else {if (sum(!is.na(c(bprodin, dfbot, dfpho)))>1) stop('Only one of bprodin/dfbot/dfpho can be set.');
-    if (!is.na(bprodin)) bprod <- bprodin else if (!is.na(dfbot)) bprod <- 0.1*dfbot else if (!is.na(dfpho)) {bprod <- 0.1*(dfpho*(depth/photic)^-0.86); if (bprod >= 0.1*dfpho) bprod <- 0.1*dfpho}}
-  conv <- if (resource_input_units == "mmolN_m3") 14e-3 * N_to_C * C_to_wet else if (resource_input_units == "molC_m3") 12.0 * C_to_wet else input_to_gN * N_to_C * C_to_wet
-  smallZoo_conc <- profile$zmicro * conv; largeZoo_conc <- profile$zmeso * conv
-  if (is.null(szprod)) szprod <- sum(smallZoo_conc * dz); if (is.null(lzprod)) lzprod <- sum(largeZoo_conc * dz)
-  mass_small <- smallZoo_conc * dz; mass_large <- largeZoo_conc * dz
-  fallback <- ifelse(profile$I_day_rel >= I_eu, 1, 0); if (sum(fallback) == 0) fallback[] <- 1; fallback <- fallback/sum(fallback)
-  P_smallZoo <- if (sum(mass_small, na.rm=T) > 0) mass_small/sum(mass_small, na.rm=T) else fallback
-  P_largeZoo <- if (sum(mass_large, na.rm=T) > 0) mass_large/sum(mass_large, na.rm=T) else fallback
-  P_benthos <- rep(0, Z); P_benthos[Z] <- 1; P_spare <- P_benthos
-  param <- paramInit(bottom=depth, szprod=szprod, lzprod=lzprod, photic=photic, shelfdepth=shelfdepth, visual=visual, bprodin=bprodin, dfbot=dfbot, dfpho=dfpho, bprod=bprod, etaMature=etaMature, Tp=10, Tm=10, Tb=10)
-  param <- paramAddResource(param, names=c("smallZoo", "largeZoo", "benthos", "Spare_position"), K=c(szprod, lzprod, bprod, 0), r=c(1,1,1,1), mc=c(2e-06*sqrt(500),0.001*sqrt(500),1e-04*sqrt(250000),0.25*sqrt(500)), mLower=c(2e-06,0.001,1e-04,0.25), mUpper=c(0.001,0.5,25,125), u0=c(0.5,0.5,0.5,0))
-  nSmall <- round(0.66*nStages); u0 <- 0.0001; u0M <- if (depth <= shelfdepth) 0 else u0
-  param <- paramAddGroup(param, mMin=0.001, mMax=250, mMature=etaMature*250, u0=u0, mortF=0, nStages=nSmall, name="smallPel")
-  param <- paramAddGroup(param, mMin=0.001, mMax=250, mMature=etaMature*250, u0=u0M, mortF=0, nStages=nSmall, name="mesoPel")
-  param <- paramAddGroup(param, mMin=0.001, mMax=125000, mMature=etaMature*125000, u0=u0, mortF=0, nStages=nStages, name="largePel")
-  param <- paramAddGroup(param, mMin=0.001, mMax=125000, mMature=etaMature*125000, u0=u0M, mortF=0, nStages=nStages, name="midwPred")
-  param <- paramAddGroup(param, mMin=0.001, mMax=125000, mMature=etaMature*125000, u0=u0, mortF=0, nStages=nStages, name="demersals")
-  param <- paramAddPhysiology(param); param <- setFishing(param, Fmax=Fmax, etaF=etaF)
-  param$sizeprefer <- paramSizepref(p=param, beta=400, sigma=1.3, type=1)
-  sigmap <- pmax(ssigma + tau * log10(param$mc / param$mc[1]), min(dz)/2)
-  # Option A (setupVertical-style) diel redistribution for resources:
-  # night at surface; day is half surface + half at dvm.
-  zres_n <- VertDistProfile(z_mid, dz, sigmap[1:2], surface_depth)
-  zres_d_raw <- VertDistProfile(z_mid, dz, sigmap[1:2], dvm_depth)
-  zres_d <- 0.5 * zres_n + 0.5 * zres_d_raw
-  zres_n <- zres_n %*% diag(1 / colSums(zres_n))
-  zres_d <- zres_d %*% diag(1 / colSums(zres_d))
-  get_stage_flags <- function(ix){ml <- param$mLower[ix]; med <- ml>=0.5; lg <- ml>=250; if(!any(med)) med[which.min(abs(ml-0.5))] <- TRUE; if(!any(lg)) lg[which.min(abs(ml-250))] <- TRUE; list(med=med, lg=lg)}
-  param$depthDay <- matrix(0, Z, param$nStages); param$depthNight <- matrix(0, Z, param$nStages)
-  param$depthDay[,1] <- zres_d[,1]; param$depthDay[,2] <- zres_d[,2]; param$depthDay[,3] <- P_benthos; param$depthDay[,4] <- P_spare
-  param$depthNight[,1] <- zres_n[,1]; param$depthNight[,2] <- zres_n[,2]; param$depthNight[,3] <- P_benthos; param$depthNight[,4] <- P_spare
-  ix <- param$ix[[1]]; param$depthDay[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],surface_depth); param$depthNight[,ix] <- param$depthDay[,ix]
-  ix <- param$ix[[2]]; param$depthNight[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],surface_depth); param$depthDay[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],dvm_depth)
-  ix <- param$ix[[3]]; flags <- get_stage_flags(ix); pn <- VertDistProfile(z_mid,dz,sigmap[ix],surface_depth); xd <- rep(surface_depth,length(ix)); xd[flags$lg] <- dvm_depth; pd <- VertDistProfile(z_mid,dz,sigmap[ix],xd); param$depthNight[,ix] <- pn; param$depthDay[,ix] <- 0.5*pd+0.5*pn
-  ix <- param$ix[[4]]; flags <- get_stage_flags(ix); xn <- rep(surface_depth,length(ix)); xn[flags$lg] <- dvm_depth; param$depthNight[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],xn); param$depthDay[,ix] <- VertDistProfile(z_mid,dz,sigmap[ix],dvm_depth)
-  ix <- param$ix[[5]]; flags <- get_stage_flags(ix); xn <- rep(surface_depth,length(ix)); xn[flags$med] <- bottom_target; xd <- xn; xd[flags$lg] <- demmig_depth; dn <- VertDistProfile(z_mid,dz,sigmap[ix],xn); dd <- VertDistProfile(z_mid,dz,sigmap[ix],xd); if(bottom <= photic){dd <- 0.5*(dd+dn); dn <- dd}; param$depthNight[,ix] <- dn; param$depthDay[,ix] <- dd
-  phi_day <- calc_light_scalar(profile$I_day_rel, K_L, h_L, L_min, L_max)
-  if (isTRUE(light_bottom_to_one)) {
-    bottom_ix <- which.max(z_bot)
-    phi_day[bottom_ix] <- 1
-  }
-  phi_night <- 0.5 * phi_day
-  dayout <- nightout <- matrix(0, param$nStages, param$nStages)
-  for(i in seq_len(param$nStages)) for(j in seq_len(param$nStages)){dayout[j,i] <- sum(pmin(param$depthDay[,i],param$depthDay[,j])*phi_day); nightout[j,i] <- sum(pmin(param$depthNight[,i],param$depthNight[,j])*phi_night)}
-  if (use_legacy_visual) {
-    ixlarge <- function(ix) { ml <- param$mLower[ix]; if (any(ml >= 250)) which(ml >= 250) else which.min(abs(ml - 250)):length(ix)}
-    visualpred <- c(param$ix[[1]], param$ix[[3]]); dayout[visualpred,] <- dayout[visualpred,]*visual; nightout[visualpred,] <- nightout[visualpred,]*(2-visual)
-    pelpred <- param$ix[[3]][ixlarge(param$ix[[3]])]; preytwi <- c(param$ix[[2]], param$ix[[4]]); dayout[pelpred, preytwi] <- dayout[pelpred, preytwi]/visual*(2-visual)
-  }
-  param$dayout <- dayout; param$nightout <- nightout; param$vertover <- 0.5*(dayout+nightout); param$theta <- param$sizeprefer*param$vertover
-  # setupVertical2-like post-theta feeding/prey-switching revisions
-  ix_dem <- param$ix[[5]]
-  ml_dem <- param$mLower[ix_dem]
-  ixmedium <- which.min(abs(ml_dem - 0.5))
-  ixlarge <- which.min(abs(ml_dem - 250))
-  param$ixmedium <- ixmedium
-  param$ixlarge <- ixlarge
-  safe_seq <- function(a, b) if (is.finite(a) && is.finite(b) && b >= a) seq.int(a, b) else integer(0)
-  idx_be <- safe_seq(param$ixFish[1], ix_dem[1] + (ixmedium - 2))
+verticalO2SafeSeq = function(a, b) {
+  if (is.finite(a) && is.finite(b) && b >= a) seq.int(a, b) else integer(0)
+}
+
+verticalO2ApplyThetaAdjustments = function(param) {
+  ix_dem = param$ix[[5]]
+  ml_dem = param$mLower[ix_dem]
+  ixmedium = which.min(abs(ml_dem - 0.5))
+  ixlarge = which.min(abs(ml_dem - 250))
+
+  param$ixmedium = ixmedium
+  param$ixlarge = ixlarge
+
+  idx_be = verticalO2SafeSeq(param$ixFish[1], ix_dem[1] + (ixmedium - 2))
   if (length(idx_be) > 0) {
-    param$theta[idx_be, 3:4] <- 0
+    param$theta[idx_be, 3:4] = 0
+
     if (ixlarge >= (ixmedium + 1)) {
-      idx_smd <- safe_seq(ix_dem[1] + (ixmedium - 1), ix_dem[1] + (ixlarge - 2))
-      param$theta[idx_be, idx_smd] <- param$theta[idx_be, idx_smd] * 0.25
+      idx_smd = verticalO2SafeSeq(ix_dem[1] + (ixmedium - 1), ix_dem[1] + (ixlarge - 2))
+      param$theta[idx_be, idx_smd] = param$theta[idx_be, idx_smd] * 0.25
     }
   }
-  # Keep demersals pelagic-feeding-capable while in pelagic overlap:
-  # do NOT hard-switch medium/large demersals off zooplankton resources.
-  # Their effective prey use is then controlled by size preference and overlap (theta base).
-  pred1 <- safe_seq(param$ix[[3]][1] + (ixlarge - 1), param$ix[[3]][length(param$ix[[3]])])
-  pred2 <- safe_seq(param$ix[[4]][1] + (ixlarge - 1), param$ix[[4]][length(param$ix[[4]])])
-  pred3 <- safe_seq(ix_dem[1] + (ixlarge - 1), ix_dem[length(ix_dem)])
-  prey1 <- safe_seq(param$ix[[1]][1] + (ixmedium - 1), param$ix[[1]][length(param$ix[[1]])])
-  prey2 <- safe_seq(param$ix[[2]][1] + (ixmedium - 1), param$ix[[2]][length(param$ix[[2]])])
-  idx_predat <- c(pred1, pred2, pred3)
-  idx_prey <- c(prey1, prey2)
+
+  pred1 = verticalO2SafeSeq(param$ix[[3]][1] + (ixlarge - 1), param$ix[[3]][length(param$ix[[3]])])
+  pred2 = verticalO2SafeSeq(param$ix[[4]][1] + (ixlarge - 1), param$ix[[4]][length(param$ix[[4]])])
+  pred3 = verticalO2SafeSeq(ix_dem[1] + (ixlarge - 1), ix_dem[length(ix_dem)])
+  prey1 = verticalO2SafeSeq(param$ix[[1]][1] + (ixmedium - 1), param$ix[[1]][length(param$ix[[1]])])
+  prey2 = verticalO2SafeSeq(param$ix[[2]][1] + (ixmedium - 1), param$ix[[2]][length(param$ix[[2]])])
+
+  idx_predat = c(pred1, pred2, pred3)
+  idx_prey = c(prey1, prey2)
   if (length(idx_predat) > 0 && length(idx_prey) > 0) {
-    param$theta[idx_predat, idx_prey] <- param$theta[idx_predat, idx_prey] * 0.5
+    param$theta[idx_predat, idx_prey] = param$theta[idx_predat, idx_prey] * 0.5
   }
-  pO2 <- profile$pO2_kPa; tc <- profile$temp_C; mc <- param$mc
-  D_over_S <- outer((Q10_D/Q10_S)^((tc-T_ref_O2)/10), (mc/w_ref_O2)^(b_D-b_S)) * delta_pO2_ref
-  pO2int <- pmax(matrix(pO2, Z, param$nStages) - D_over_S, 0)
-  glvl_local <- pO2int^h_O/(pO2int^h_O + K_O^h_O); glvl_local[!is.finite(glvl_local)] <- 0
-  glvl_eff <- rep(1, param$nStages)
-  for (i in param$ixFish) glvl_eff[i] <- 0.5*sum(param$depthDay[,i]*glvl_local[,i]) + 0.5*sum(param$depthNight[,i]*glvl_local[,i])
+
+  param
+}
+
+verticalO2Limitation = function(param, profile, Z, Q10_D, Q10_S, T_ref_O2,
+                                w_ref_O2, b_D, b_S, delta_pO2_ref, h_O, K_O,
+                                use_oxygen) {
+  pO2 = profile$pO2_kPa
+  tc = profile$temp_C
+  mc = param$mc
+
+  D_over_S = outer((Q10_D / Q10_S)^((tc - T_ref_O2) / 10),
+                   (mc / w_ref_O2)^(b_D - b_S)) * delta_pO2_ref
+  pO2int = pmax(matrix(pO2, Z, param$nStages) - D_over_S, 0)
+  glvl_local = pO2int^h_O / (pO2int^h_O + K_O^h_O)
+  glvl_local[!is.finite(glvl_local)] = 0
+
+  glvl_eff = rep(1, param$nStages)
+  for (i in param$ixFish) {
+    glvl_eff[i] = 0.5 * sum(param$depthDay[, i] * glvl_local[, i]) +
+      0.5 * sum(param$depthNight[, i] * glvl_local[, i])
+  }
+
   if (!isTRUE(use_oxygen)) {
-    glvl_local[,] <- 1
-    glvl_eff[] <- 1
+    glvl_local[,] = 1
+    glvl_eff[] = 1
   }
-  tempC <- 1.88^((tc-10)/10); tempM <- 1.88^((tc-10)/10)
-  thetaC <- colSums(param$depthDay*matrix(tempC,Z,param$nStages)) * 0.5 + colSums(param$depthNight*matrix(tempC,Z,param$nStages))*0.5
-  thetaM <- colSums(param$depthDay*matrix(tempM,Z,param$nStages)) * 0.5 + colSums(param$depthNight*matrix(tempM,Z,param$nStages))*0.5
-  param$Cmax <- thetaC * param$Cmaxsave; param$V <- thetaC * param$Vsave; param$metabolism <- thetaM * param$metabolismsave
-  param$glvl <- pmin(1,pmax(0,glvl_eff)); param$glvl_day <- glvl_local; param$glvl_night <- glvl_local
-  param$pO2int_day <- pO2int; param$pO2int_night <- pO2int; param$D_over_S_day <- D_over_S; param$D_over_S_night <- D_over_S
-  param$z_mid <- z_mid; param$z_top <- z_top; param$z_bot <- z_bot; param$dz <- dz; param$phiLightDay <- phi_day; param$phiLightNight <- phi_night
-  param$setup <- "setupVerticalO2"; param$bET <- bET
+
+  list(
+    glvl = pmin(1, pmax(0, glvl_eff)),
+    glvl_local = glvl_local,
+    pO2int = pO2int,
+    D_over_S = D_over_S
+  )
+}
+
+setupVerticalO2 = function(profile,
+                           szprod = NULL,
+                           lzprod = NULL,
+                           bprodin = NA,
+                           dfbot = NA,
+                           dfpho = NA,
+                           nStages = 9,
+                           photic = NULL,
+                           shelfdepth = 250,
+                           visual = 1.5,
+                           etaMature = 0.25,
+                           Fmax = 0,
+                           etaF = 0.05,
+                           bET = TRUE,
+                           I_eu = 0.01,
+                           ssigma = 10,
+                           tau = 10,
+                           use_legacy_visual = FALSE,
+                           K_O = 2,
+                           h_O = 1,
+                           T_ref_O2 = 10,
+                           b_D = 0.75,
+                           b_S = 0.67,
+                           Q10_D = 2,
+                           Q10_S = 1.5,
+                           delta_pO2_ref = 2,
+                           w_ref_O2 = 1,
+                           use_oxygen = TRUE,
+                           use_light = TRUE,
+                           resource_input_units = "molN_m3",
+                           input_to_gN = 14.0,
+                           N_to_C = 5.625,
+                           C_to_wet = 10,
+                           ...) {
+  profile = verticalO2CheckProfile(profile)
+
+  z_mid = profile$depth_mid_m
+  z_top = profile$depth_top_m
+  z_bot = profile$depth_bot_m
+  dz = profile$dz_m
+  Z = nrow(profile)
+  depth = max(z_bot)
+  bottom = depth
+
+  if (is.null(photic)) {
+    euphotic = profile$I_day_rel >= I_eu
+    photic = if (any(euphotic)) max(z_bot[euphotic]) else min(z_bot)
+  }
+
+  surface_depth = min(z_mid)
+  bottom_depth = max(z_mid)
+  dvm = photic + 500
+  if (dvm > bottom) dvm = bottom
+  if (bottom <= shelfdepth) dvm = surface_depth
+
+  clip_depth = function(x) min(max(x, surface_depth), bottom_depth)
+  dvm_depth = clip_depth(dvm)
+  bottom_target = bottom_depth
+
+  demmig = dvm
+  if ((bottom - dvm) >= 1200) demmig = dvm + (bottom - dvm - 1200)
+  if ((bottom - dvm) >= 1500) demmig = bottom
+  demmig_depth = clip_depth(demmig)
+
+  if (is.na(bprodin) & is.na(dfbot) & is.na(dfpho)) {
+    dfpho = 350
+    bprod = 0.1 * (dfpho * (depth / photic)^-0.86)
+    if (bprod >= 0.1 * dfpho) bprod = 0.1 * dfpho
+  } else {
+    if (sum(!is.na(c(bprodin, dfbot, dfpho))) > 1) stop("Only one of bprodin/dfbot/dfpho can be set.")
+
+    if (!is.na(bprodin)) {
+      bprod = bprodin
+    } else if (!is.na(dfbot)) {
+      bprod = 0.1 * dfbot
+    } else if (!is.na(dfpho)) {
+      bprod = 0.1 * (dfpho * (depth / photic)^-0.86)
+      if (bprod >= 0.1 * dfpho) bprod = 0.1 * dfpho
+    }
+  }
+
+  resources = verticalO2ResourceProfiles(
+    profile = profile,
+    dz = dz,
+    I_eu = I_eu,
+    resource_input_units = resource_input_units,
+    input_to_gN = input_to_gN,
+    N_to_C = N_to_C,
+    C_to_wet = C_to_wet
+  )
+  if (is.null(szprod)) szprod = resources$szprod
+  if (is.null(lzprod)) lzprod = resources$lzprod
+
+  P_benthos = rep(0, Z)
+  P_benthos[Z] = 1
+  P_spare = P_benthos
+
+  param = paramInit(bottom = depth, szprod = szprod, lzprod = lzprod,
+                    photic = photic, shelfdepth = shelfdepth, visual = visual,
+                    bprodin = bprodin, dfbot = dfbot, dfpho = dfpho,
+                    bprod = bprod, etaMature = etaMature, Tp = 10, Tm = 10, Tb = 10)
+  param = paramAddResource(param,
+                           names = c("smallZoo", "largeZoo", "benthos", "Spare_position"),
+                           K = c(szprod, lzprod, bprod, 0),
+                           r = c(1, 1, 1, 1),
+                           mc = c(2e-06 * sqrt(500), 0.001 * sqrt(500),
+                                  1e-04 * sqrt(250000), 0.25 * sqrt(500)),
+                           mLower = c(2e-06, 0.001, 1e-04, 0.25),
+                           mUpper = c(0.001, 0.5, 25, 125),
+                           u0 = c(0.5, 0.5, 0.5, 0))
+
+  nSmall = round(0.66 * nStages)
+  u0 = 0.0001
+  u0M = if (depth <= shelfdepth) 0 else u0
+  param = paramAddGroup(param, mMin = 0.001, mMax = 250, mMature = etaMature * 250,
+                        u0 = u0, mortF = 0, nStages = nSmall, name = "smallPel")
+  param = paramAddGroup(param, mMin = 0.001, mMax = 250, mMature = etaMature * 250,
+                        u0 = u0M, mortF = 0, nStages = nSmall, name = "mesoPel")
+  param = paramAddGroup(param, mMin = 0.001, mMax = 125000, mMature = etaMature * 125000,
+                        u0 = u0, mortF = 0, nStages = nStages, name = "largePel")
+  param = paramAddGroup(param, mMin = 0.001, mMax = 125000, mMature = etaMature * 125000,
+                        u0 = u0M, mortF = 0, nStages = nStages, name = "midwPred")
+  param = paramAddGroup(param, mMin = 0.001, mMax = 125000, mMature = etaMature * 125000,
+                        u0 = u0, mortF = 0, nStages = nStages, name = "demersals")
+  param = paramAddPhysiology(param)
+  param = setFishing(param, Fmax = Fmax, etaF = etaF)
+
+  param$sizeprefer = paramSizepref(p = param, beta = 400, sigma = 1.3, type = 1)
+  sigmap = pmax(ssigma + tau * log10(param$mc / param$mc[1]), min(dz) / 2)
+
+  param$depthDay = matrix(0, Z, param$nStages)
+  param$depthNight = matrix(0, Z, param$nStages)
+  param$depthDay[, 1] = resources$small_day
+  param$depthDay[, 2] = resources$large_day
+  param$depthDay[, 3] = P_benthos
+  param$depthDay[, 4] = P_spare
+  param$depthNight[, 1] = resources$small_night
+  param$depthNight[, 2] = resources$large_night
+  param$depthNight[, 3] = P_benthos
+  param$depthNight[, 4] = P_spare
+
+  ix = param$ix[[1]]
+  param$depthDay[, ix] = verticalO2Distribution(z_mid, dz, sigmap[ix], surface_depth)
+  param$depthNight[, ix] = param$depthDay[, ix]
+
+  ix = param$ix[[2]]
+  param$depthNight[, ix] = verticalO2Distribution(z_mid, dz, sigmap[ix], surface_depth)
+  param$depthDay[, ix] = verticalO2Distribution(z_mid, dz, sigmap[ix], dvm_depth)
+
+  ix = param$ix[[3]]
+  flags = verticalO2StageFlags(param, ix)
+  pn = verticalO2Distribution(z_mid, dz, sigmap[ix], surface_depth)
+  xd = rep(surface_depth, length(ix))
+  xd[flags$lg] = dvm_depth
+  pd = verticalO2Distribution(z_mid, dz, sigmap[ix], xd)
+  param$depthNight[, ix] = pn
+  param$depthDay[, ix] = 0.5 * pd + 0.5 * pn
+
+  ix = param$ix[[4]]
+  flags = verticalO2StageFlags(param, ix)
+  xn = rep(surface_depth, length(ix))
+  xn[flags$lg] = dvm_depth
+  param$depthNight[, ix] = verticalO2Distribution(z_mid, dz, sigmap[ix], xn)
+  param$depthDay[, ix] = verticalO2Distribution(z_mid, dz, sigmap[ix], dvm_depth)
+
+  ix = param$ix[[5]]
+  flags = verticalO2StageFlags(param, ix)
+  xn = rep(surface_depth, length(ix))
+  xn[flags$med] = bottom_target
+  xd = xn
+  xd[flags$lg] = demmig_depth
+  dn = verticalO2Distribution(z_mid, dz, sigmap[ix], xn)
+  dd = verticalO2Distribution(z_mid, dz, sigmap[ix], xd)
+  if (bottom <= photic) {
+    dd = 0.5 * (dd + dn)
+    dn = dd
+  }
+  param$depthNight[, ix] = dn
+  param$depthDay[, ix] = dd
+
+  phi_day = pmax(0, profile$I_day_rel)
+  phi_night = pmax(0, profile$I_night_rel)
+  if (!isTRUE(use_light)) {
+    phi_day[] = 1
+    phi_night[] = 1
+  }
+
+  dayout = nightout = matrix(0, param$nStages, param$nStages)
+  for (i in seq_len(param$nStages)) {
+    for (j in seq_len(param$nStages)) {
+      dayout[j, i] = sum(pmin(param$depthDay[, i], param$depthDay[, j]) * phi_day)
+      nightout[j, i] = sum(pmin(param$depthNight[, i], param$depthNight[, j]) * phi_night)
+    }
+  }
+
+  if (use_legacy_visual) {
+    ixlarge = function(ix) {
+      ml = param$mLower[ix]
+      if (any(ml >= 250)) which(ml >= 250) else which.min(abs(ml - 250)):length(ix)
+    }
+    visualpred = c(param$ix[[1]], param$ix[[3]])
+    dayout[visualpred, ] = dayout[visualpred, ] * visual
+    nightout[visualpred, ] = nightout[visualpred, ] * (2 - visual)
+    pelpred = param$ix[[3]][ixlarge(param$ix[[3]])]
+    preytwi = c(param$ix[[2]], param$ix[[4]])
+    dayout[pelpred, preytwi] = dayout[pelpred, preytwi] / visual * (2 - visual)
+  }
+
+  param$dayout = dayout
+  param$nightout = nightout
+  param$vertover = 0.5 * (dayout + nightout)
+  param$theta = param$sizeprefer * param$vertover
+  param = verticalO2ApplyThetaAdjustments(param)
+
+  oxygen = verticalO2Limitation(
+    param = param,
+    profile = profile,
+    Z = Z,
+    Q10_D = Q10_D,
+    Q10_S = Q10_S,
+    T_ref_O2 = T_ref_O2,
+    w_ref_O2 = w_ref_O2,
+    b_D = b_D,
+    b_S = b_S,
+    delta_pO2_ref = delta_pO2_ref,
+    h_O = h_O,
+    K_O = K_O,
+    use_oxygen = use_oxygen
+  )
+
+  tempC = 1.88^((profile$temp_C - 10) / 10)
+  tempM = 1.88^((profile$temp_C - 10) / 10)
+  thetaC = 0.5 * colSums(param$depthDay * matrix(tempC, Z, param$nStages)) +
+    0.5 * colSums(param$depthNight * matrix(tempC, Z, param$nStages))
+  thetaM = 0.5 * colSums(param$depthDay * matrix(tempM, Z, param$nStages)) +
+    0.5 * colSums(param$depthNight * matrix(tempM, Z, param$nStages))
+
+  param$Cmax = thetaC * param$Cmaxsave
+  param$V = thetaC * param$Vsave
+  param$metabolism = thetaM * param$metabolismsave
+  param$glvl = oxygen$glvl
+  param$glvl_day = oxygen$glvl_local
+  param$glvl_night = oxygen$glvl_local
+  param$pO2int_day = oxygen$pO2int
+  param$pO2int_night = oxygen$pO2int
+  param$D_over_S_day = oxygen$D_over_S
+  param$D_over_S_night = oxygen$D_over_S
+  param$z_mid = z_mid
+  param$z_top = z_top
+  param$z_bot = z_bot
+  param$dz = dz
+  param$phiLightDay = phi_day
+  param$phiLightNight = phi_night
+  param$profile = profile
+  param$setup = "setupVerticalO2"
+  param$bET = bET
+
   param
 }
 #' setupTimeseries
