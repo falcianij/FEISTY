@@ -1,75 +1,70 @@
 ---
-title: "Testing `setupVerticalO2()` Locally"
+title: "Example `setupVerticalO2()` workflow"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Testing setupVerticalO2 Locally}
+  %\VignetteIndexEntry{Example setupVerticalO2 workflow}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
 ```{r, include=FALSE}
-knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 8, fig.height = 5)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4.5)
 ```
 
 ## Purpose
 
-This test vignette is a runnable workflow for validating `setupVerticalO2()` with:
+This vignette shows a minimal, serial `setupVerticalO2()` workflow using the
+bundled CSV profile table at `data/profiles_sites_hist_vs_ssp585_long.csv`.
+It loads one site/scenario profile, builds a FEISTY setup with oxygen and light
+enabled, runs a short R simulation, and makes the most useful diagnostic plots.
 
-1. Local loading of FEISTY code and profile data.
-2. Vertical profile and habitat/overlap diagnostics.
-3. A short simulation run.
-4. Food web and simulation summary plots.
+The profile CSV is read outside `setupVerticalO2()`. The setup function receives
+only the prepared profile data frame.
 
-## Load FEISTY functions and profile data locally
+## Load FEISTY and one profile
 
-```{r setup-local}
-# Load FEISTY functions locally through devtools.
+```{r setup-profile}
 devtools::load_all(path = here::here())
+source(here::here("scripts", "vertical_o2_profiles.R"))
 
-profile_path <- here::here("data/profiles_sites_hist_vs_ssp585_long.csv")
+profile_path <- here::here("data", "profiles_sites_hist_vs_ssp585_long.csv")
 stopifnot(file.exists(profile_path))
 
 site <- "CCE"
 scenario <- "hist"
-```
 
-## Read and inspect a profile
-
-```{r profile-load}
-prof <- read_vertical_o2_profile(
+profile <- read_vertical_o2_profile(
   profile_path = profile_path,
   site = site,
-  scenario = scenario,
-  fill_internal_gaps = FALSE
+  scenario = scenario
 )
 
-str(prof)
-head(prof)
-summary(prof$dz_m)
+head(profile)
+summary(profile[, c("depth_mid_m", "temp_C", "pO2_kPa", "zmeso_day", "zmicro_day")])
 ```
 
-## Plot vertical forcing profiles
+## Plot the input forcing profiles
 
-```{r forcing-profiles, fig.height=8}
+```{r forcing-profiles, fig.height=7}
 op <- par(mfrow = c(2, 3), mar = c(4, 4, 2, 1))
-plot(prof$temp_C, prof$depth_mid_m, type = "l", lwd = 2,
-     xlab = "Temperature (C)", ylab = "Depth (m)", main = "Temperature",
-     ylim = rev(range(prof$depth_mid_m)))
-plot(prof$pO2_kPa, prof$depth_mid_m, type = "l", lwd = 2,
-     xlab = "pO2 (kPa)", ylab = "Depth (m)", main = "Oxygen",
-     ylim = rev(range(prof$depth_mid_m)))
-plot(prof$zmicro, prof$depth_mid_m, type = "l", lwd = 2,
-     xlab = "zmicro", ylab = "Depth (m)", main = "Microzoo",
-     ylim = rev(range(prof$depth_mid_m)))
-plot(prof$zmeso, prof$depth_mid_m, type = "l", lwd = 2,
-     xlab = "zmeso", ylab = "Depth (m)", main = "Mesozoo",
-     ylim = rev(range(prof$depth_mid_m)))
-plot(prof$I_day_rel, prof$depth_mid_m, type = "l", lwd = 2,
-     xlab = "I_day_rel", ylab = "Depth (m)", main = "Light (day)",
-     ylim = rev(range(prof$depth_mid_m)))
-plot(prof$I_night_rel, prof$depth_mid_m, type = "l", lwd = 2,
-     xlab = "I_night_rel", ylab = "Depth (m)", main = "Light (night)",
-     ylim = rev(range(prof$depth_mid_m)))
+ylim <- rev(range(profile$depth_mid_m))
+
+plot(profile$temp_C, profile$depth_mid_m, type = "l", lwd = 2,
+     xlab = "Temperature (deg C)", ylab = "Depth (m)", main = "Temperature", ylim = ylim)
+plot(profile$pO2_kPa, profile$depth_mid_m, type = "l", lwd = 2,
+     xlab = "pO2 (kPa)", ylab = "Depth (m)", main = "Oxygen", ylim = ylim)
+plot(profile$zmicro_day, profile$depth_mid_m, type = "l", lwd = 2,
+     xlab = "zmicro", ylab = "Depth (m)", main = "Microzooplankton", ylim = ylim)
+lines(profile$zmicro_night, profile$depth_mid_m, lwd = 2, lty = 2)
+plot(profile$zmeso_day, profile$depth_mid_m, type = "l", lwd = 2,
+     xlab = "zmeso", ylab = "Depth (m)", main = "Mesozooplankton", ylim = ylim)
+lines(profile$zmeso_night, profile$depth_mid_m, lwd = 2, lty = 2)
+plot(profile$I_day_rel, profile$depth_mid_m, type = "l", lwd = 2,
+     xlab = "relative light", ylab = "Depth (m)", main = "Light", ylim = ylim)
+lines(profile$I_night_rel, profile$depth_mid_m, lwd = 2, lty = 2)
+legend("bottomright", legend = c("day", "night"), lty = c(1, 2), lwd = 2, bty = "n")
+plot(profile$dz_m, profile$depth_mid_m, type = "l", lwd = 2,
+     xlab = "layer thickness (m)", ylab = "Depth (m)", main = "Vertical grid", ylim = ylim)
 par(op)
 ```
 
@@ -77,139 +72,70 @@ par(op)
 
 ```{r build-setup}
 p <- setupVerticalO2(
-  profile_path = profile_path,
-  site = site,
-  scenario = scenario,
+  profile = profile,
   nStages = 9,
-  K_O = 2,
-  h_O = 1,
-  delta_pO2_ref = 2,
-  Q10_D = 2,
-  Q10_S = 1.5,
-  K_L = 0.1,
-  L_min = 0.5,
-  L_max = 1.5,
-  light_bottom_to_one = TRUE
+  use_oxygen = TRUE,
+  use_light = TRUE
 )
 
-# Optional no-oxygen-limitation control (uncomment to use):
-# This keeps the original profile intact and sets glvl = 1 for every stage/depth.
-# p <- setupVerticalO2(
-#   profile_path = profile_path,
-#   site = site,
-#   scenario = scenario,
-#   nStages = 9,
-#   K_O = 2,
-#   h_O = 1,
-#   delta_pO2_ref = 2,
-#   Q10_D = 2,
-#   Q10_S = 1.5,
-#   use_oxygen = FALSE,
-#   K_L = 0.1,
-#   L_min = 0.5,
-#   L_max = 1.5,
-#   light_bottom_to_one = TRUE
-# )
-
-p$setup
-dim(p$depthDay)
-dim(p$depthNight)
-range(p$glvl)
-range(p$phiLightDay)
-range(p$phiLightNight)
+c(
+  setup = p$setup,
+  n_stages = p$nStages,
+  n_depth_layers = length(p$z_mid),
+  min_glvl = min(p$glvl),
+  max_glvl = max(p$glvl)
+)
 ```
 
-## Vertical-distribution and oxygen/light diagnostics
+## Plot vertical habitat and limitation diagnostics
 
-```{r diagnostics, fig.height=8}
-op <- par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
-
-# Stage colors by fish group
+```{r setup-diagnostics, fig.height=7}
 fish_group_names <- p$groupnames[p$nResources + seq_along(p$ix)]
-group_cols <- unlist(mapply(function(ix, nm) rep(p$my_palette[nm], length(ix)),
-                            p$ix, fish_group_names, SIMPLIFY = FALSE))
-fish_stage_labels <- p$stagenames[p$ixFish]
 
+op <- par(mfrow = c(2, 2), mar = c(4, 4, 2, 1))
 plot(p$phiLightDay, p$z_mid, type = "l", lwd = 2,
-     xlab = "Light scalar", ylab = "Depth (m)",
-     main = "phiLightDay / phiLightNight", ylim = rev(range(p$z_mid)))
+     xlab = "light multiplier", ylab = "Depth (m)", main = "Light used by setup",
+     ylim = rev(range(p$z_mid)))
 lines(p$phiLightNight, p$z_mid, lwd = 2, lty = 2)
-legend("bottomright", legend = c("Day", "Night"), lty = c(1,2), bty = "n")
+legend("bottomright", legend = c("day", "night"), lty = c(1, 2), lwd = 2, bty = "n")
 
-plot(p$mc[p$ixFish], p$glvl[p$ixFish], type = "n",
-     xlab = "Weight (g)", ylab = "glvl", log = "x",
-     main = "glvl by stage and group", ylim = c(0, 1.05))
-# Draw lines first, then points ordered so overlaid low values are still visible.
-group_jitter <- seq(0.96, 1.04, length.out = length(p$ix))
-for (gix in seq_along(p$ix)) {
-  idx <- p$ix[[gix]]
-  xj <- p$mc[idx] * group_jitter[gix]
-  lines(xj, p$glvl[idx], col = p$my_palette[fish_group_names[gix]], lwd = 2)
-}
-# Draw points by increasing glvl so higher values are drawn last (on top).
-pt_idx <- p$ixFish[order(p$glvl[p$ixFish], p$mc[p$ixFish])]
-pt_groups <- rep(fish_group_names, lengths(p$ix))
-pt_groups <- pt_groups[match(pt_idx, p$ixFish)]
-xj_points <- p$mc[pt_idx] * group_jitter[match(pt_groups, fish_group_names)]
-points(xj_points, p$glvl[pt_idx], col = p$my_palette[pt_groups], pch = 16, cex = 1.1)
-# Add slight open-circle overlay to improve visibility at exact overlaps.
-points(xj_points, p$glvl[pt_idx], col = p$my_palette[pt_groups], pch = 1, cex = 1.1)
-abline(h = c(0.25, 0.5, 0.75, 1.0), lty = 3, col = "grey80")
-legend("bottomright", legend = fish_group_names, col = p$my_palette[fish_group_names],
-       lty = 1, pch = 16, cex = 0.7, bty = "n")
+plot(p$mc[p$ixFish], p$glvl[p$ixFish], log = "x", pch = 16,
+     xlab = "Body mass (g)", ylab = "oxygen limitation (glvl)",
+     main = "Stage oxygen limitation", ylim = c(0, 1.05))
+abline(h = c(0.25, 0.5, 0.75, 1), lty = 3, col = "grey80")
 
+matplot(p$depthDay[, p$ixR[1:2]], p$z_mid, type = "l", lty = 1, lwd = 2,
+        xlab = "depth fraction", ylab = "Depth (m)", main = "Resource depth: day",
+        ylim = rev(range(p$z_mid)))
+legend("bottomright", legend = p$groupnames[p$ixR[1:2]], col = 1:2, lty = 1, bty = "n")
+
+matplot(p$depthNight[, p$ixR[1:2]], p$z_mid, type = "l", lty = 1, lwd = 2,
+        xlab = "depth fraction", ylab = "Depth (m)", main = "Resource depth: night",
+        ylim = rev(range(p$z_mid)))
+legend("bottomright", legend = p$groupnames[p$ixR[1:2]], col = 1:2, lty = 1, bty = "n")
 par(op)
 ```
 
-## Vertical-distribution diagnostics by group (day vs night)
+## Run and plot a short simulation
 
-```{r depth-by-group, fig.height=14}
-op <- par(mfrow = c(p$nResources + length(p$ix), 2), mar = c(3, 4, 2, 1))
-# First show resources explicitly so benthos placement/day-night behavior is clear
-for (r in seq_len(p$nResources)) {
-  nm <- p$groupnames[r]
-  plot(p$depthDay[, r], p$z_mid, type = "l", lwd = 2, col = p$my_palette[nm],
-       xlab = "Depth fraction", ylab = "Depth (m)",
-       main = paste(nm, "- Day"), ylim = rev(range(p$z_mid)))
-  plot(p$depthNight[, r], p$z_mid, type = "l", lwd = 2, col = p$my_palette[nm],
-       xlab = "Depth fraction", ylab = "Depth (m)",
-       main = paste(nm, "- Night"), ylim = rev(range(p$z_mid)))
-}
-# Then fish groups
-for (gix in seq_along(p$ix)) {
-  idx <- p$ix[[gix]]
-  matplot(p$depthDay[, idx], p$z_mid, type = "l", lty = 1,
-          col = p$my_palette[fish_group_names[gix]], xlab = "Depth fraction", ylab = "Depth (m)",
-          main = paste(fish_group_names[gix], "- Day"), ylim = rev(range(p$z_mid)))
-  matplot(p$depthNight[, idx], p$z_mid, type = "l", lty = 1,
-          col = p$my_palette[fish_group_names[gix]], xlab = "Depth fraction", ylab = "Depth (m)",
-          main = paste(fish_group_names[gix], "- Night"), ylim = rev(range(p$z_mid)))
-}
-par(op)
-```
-
-## Run and inspect a short simulation
-
-```{r run-sim}
+```{r run-simulation}
 sim <- simulateFEISTY(p = p, tEnd = 50, USEdll = FALSE)
-# head(sim)  # Uncomment if you want to inspect the full simulation object.
 ```
 
-## Food-web structure and rate plots
+```{r simulation-plots, fig.height=6}
+plotSimulation(sim)
+```
 
-```{r foodweb-plots, fig.height=6}
+```{r network-and-rates, fig.height=5.5}
 plotNetwork(sim)
-plotDiet(sim)
 plotRates(sim)
 ```
 
-```{r sim-plots, fig.height=6}
-plotSimulation(sim)
-plotBiomasstime(sim)
-plotYieldtime(sim)
+## Optional oxygen/light controls
+
+For sensitivity checks, rerun the same profile with either switch disabled:
+
+```{r controls, eval=FALSE}
+p_no_oxygen <- setupVerticalO2(profile = profile, nStages = 9, use_oxygen = FALSE, use_light = TRUE)
+p_no_light <- setupVerticalO2(profile = profile, nStages = 9, use_oxygen = TRUE, use_light = FALSE)
 ```
-
-## Notes for global loops
-
-For global workflows, you can preload the CSV once, split by site/scenario, and call
-`setupVerticalO2(profile = one_site_profile, ...)` to avoid repeated file I/O.

@@ -1,0 +1,91 @@
+---
+title: "Serial `setupVerticalO2()` site examples"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Serial setupVerticalO2 site examples}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4.5)
+```
+
+## Purpose
+
+This vignette runs a small serial comparison across sites in
+`data/profiles_sites_hist_vs_ssp585_long.csv`. It intentionally avoids geographic plots,
+NetCDF access, and parallel execution. The goal is to show how to split a loaded
+profile table into individual profiles and pass each one to `setupVerticalO2()`.
+
+## Load profiles
+
+```{r load-profiles}
+devtools::load_all(path = here::here())
+source(here::here("scripts", "vertical_o2_profiles.R"))
+
+profile_path <- here::here("data", "profiles_sites_hist_vs_ssp585_long.csv")
+profile_all <- read_vertical_o2_profile(profile_path = profile_path, scenario = "hist")
+profile_all$key <- paste(profile_all$site, profile_all$scenario, sep = "::")
+profiles <- split(profile_all, profile_all$key)
+
+names(profiles)
+```
+
+## Run one setup and short simulation per site
+
+```{r serial-run}
+run_one_profile <- function(profile_one, nStages = 9, tEnd = 30) {
+  profile_one$key <- NULL
+  p <- setupVerticalO2(
+    profile = profile_one,
+    nStages = nStages,
+    use_oxygen = TRUE,
+    use_light = TRUE
+  )
+  sim <- simulateFEISTY(p = p, tEnd = tEnd, USEdll = FALSE)
+  list(profile = profile_one, p = p, sim = sim)
+}
+
+results <- lapply(profiles, run_one_profile)
+```
+
+## Summarize final biomass and oxygen limitation
+
+```{r summarize-results}
+summarise_result <- function(result, key) {
+  sim <- result$sim
+  p <- result$p
+  final_u <- sim$u[nrow(sim$u), ]
+  data.frame(
+    key = key,
+    site = result$profile$site[1],
+    scenario = result$profile$scenario[1],
+    total_fish_biomass = sum(final_u[p$ixFish]),
+    mean_glvl = mean(p$glvl[p$ixFish]),
+    min_pO2_kPa = min(result$profile$pO2_kPa),
+    stringsAsFactors = FALSE
+  )
+}
+
+summary_df <- do.call(rbind, Map(summarise_result, results, names(results)))
+summary_df
+```
+
+## Plot site summaries
+
+```{r plot-site-summary, fig.height=4.8}
+op <- par(mfrow = c(1, 2), mar = c(6, 4, 2, 1))
+barplot(summary_df$total_fish_biomass, names.arg = summary_df$site, las = 2,
+        ylab = "final fish biomass", main = "Short-run biomass")
+barplot(summary_df$mean_glvl, names.arg = summary_df$site, las = 2,
+        ylab = "mean glvl", main = "Mean oxygen limitation", ylim = c(0, 1))
+par(op)
+```
+
+## Plot one example simulation
+
+```{r plot-one-example, fig.height=6}
+example_key <- names(results)[1]
+plotSimulation(results[[example_key]]$sim)
+```

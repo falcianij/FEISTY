@@ -11,6 +11,13 @@ normalize_vertical_o2_profile <- function(
   fill_internal_gaps = FALSE,
   required_cols = vertical_o2_required_cols
 ) {
+  # Backward-compatible preparation for older profile tables that had one
+  # zmeso/zmicro column rather than explicit day/night prey profiles.
+  if (!"zmeso_day" %in% names(prof) && "zmeso" %in% names(prof)) prof$zmeso_day <- prof$zmeso
+  if (!"zmeso_night" %in% names(prof) && "zmeso" %in% names(prof)) prof$zmeso_night <- prof$zmeso
+  if (!"zmicro_day" %in% names(prof) && "zmicro" %in% names(prof)) prof$zmicro_day <- prof$zmicro
+  if (!"zmicro_night" %in% names(prof) && "zmicro" %in% names(prof)) prof$zmicro_night <- prof$zmicro
+
   missing_cols <- setdiff(required_cols, names(prof))
   if (length(missing_cols) > 0) {
     stop("Profile is missing required columns: ", paste(missing_cols, collapse = ", "))
