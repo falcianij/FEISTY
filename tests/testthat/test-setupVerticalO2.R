@@ -16,6 +16,16 @@ test_that('profile loader handles trailing NA and internal NA', {
   expect_true(all(stats::complete.cases(p2[,c('temp_C','pO2_kPa','zmeso_day','zmeso_night','zmicro_day','zmicro_night','I_day_rel','I_night_rel')])))
 })
 
+
+
+test_that('setupVerticalO2 resource unit conversions are centralized', {
+  expect_equal(FEISTY:::verticalO2ResourceConversion('molN_m3'), 14.0 * 5.625 * 10)
+  expect_equal(FEISTY:::verticalO2ResourceConversion('mmolN_m3'), 14e-3 * 5.625 * 10)
+  expect_equal(FEISTY:::verticalO2ResourceConversion('molC_m3'), 12.0 * 10)
+  expect_equal(FEISTY:::verticalO2ResourceConversion('gWW_m3'), 1)
+  expect_error(FEISTY:::verticalO2ResourceConversion('bad_units'), 'Unsupported resource_input_units')
+})
+
 test_that('setupVerticalO2 depth arrays, light and oxygen are bounded', {
   p <- setupVerticalO2(profile=read_vertical_o2_profile(site='CCE', scenario='hist'), nStages=9)
   expect_equal(nrow(p$depthDay), length(p$z_mid))
