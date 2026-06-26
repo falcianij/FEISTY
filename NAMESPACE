@@ -39,3 +39,5 @@ importFrom(scales,math_format)
 importFrom(scales,trans_breaks)
 importFrom(scales,trans_format)
 useDynLib(FEISTY, .registration = TRUE)
+
+export(setupVertical3)
