@@ -102,6 +102,9 @@ derivativesFEISTYR = function(t,              # current time
                               u,              # all state variables
                               p,              # parameters
                               FullOutput=TRUE) {
+  if (!is.null(p$setup) && p$setup == "setupVertical3") {
+    return(calcVertical3Derivative(t, u, p, FullOutput = FullOutput))
+  }
   
 # get time-series value for the specific time point  
   if (!is.null(p$bTS) & isTRUE(p$bTS)){
@@ -517,6 +520,10 @@ simulateFEISTY = function(p      = setupBasic(),
                           Rmodel = derivativesFEISTYR,
                           bCust  = TRUE)
 {
+  if (!is.null(p$setup) && p$setup == "setupVertical3") {
+    if (isTRUE(USEdll)) stop("setupVertical3 is currently R-only; call simulateFEISTY(..., USEdll = FALSE).")
+    return(simulateFEISTY_vertical3(p = p, tEnd = tEnd, tStep = tStep, times = times, yini = yini, Rmodel = Rmodel))
+  }
   
   nR      <- p$nResources[1] # no of resources. [1] to make sure that this is only one number
   nGroups <- p$nGroups[1] # no of fish groups
